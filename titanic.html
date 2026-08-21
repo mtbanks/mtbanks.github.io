@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>RMS Titanic — 3000 Miles to New York</title>
+<style>
+  :root {
+    --ink: #eaf2ff;
+    --dim: #8fa6c4;
+    --gold: #f0c674;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #05080f;
+    color: var(--ink);
+    font-family: "Georgia", "Times New Roman", serif;
+    overflow: hidden;
+  }
+  #wrap {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px;
+  }
+  #stage {
+    position: relative;
+    width: min(100%, 1000px);
+    aspect-ratio: 16 / 9;
+  }
+  canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: 6px;
+    border: 1px solid #1d2a3d;
+    box-shadow: 0 18px 50px rgba(0,0,0,.7);
+    background: #0a1020;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  #hint {
+    font-size: 13px;
+    color: var(--dim);
+    letter-spacing: .04em;
+    text-align: center;
+  }
+  kbd {
+    font-family: inherit;
+    background: #16203180;
+    border: 1px solid #2a3a52;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--ink);
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage"><canvas id="c"></canvas></div>
+  <div id="hint">
+    <kbd>W</kbd>/<kbd>S</kbd> or <kbd>↑</kbd>/<kbd>↓</kbd> steer &nbsp;·&nbsp;
+    <kbd>D</kbd>/<kbd>→</kbd> ahead full &nbsp;·&nbsp;
+    <kbd>A</kbd>/<kbd>←</kbd> slow astern &nbsp;·&nbsp;
+    <kbd>P</kbd> pause &nbsp;·&nbsp; mouse or touch also steers
+  </div>
+</div>
+<script>
+(() => {
+"use strict";
+
+const W = 1000, H = 562;
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function fitCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+}
+fitCanvas();
+window.addEventListener("resize", fitCanvas);
+
+// ---------------------------------------------------------------- constants
+const HORIZON   = 208;          // sky / sea divide
+const LANE_TOP  = 262;          // shallowest waterline the ship may hold
+const LANE_BOT  = 500;          // deepest waterline the ship may hold
+const GOAL      = 3000;         // miles, Southampton -> New York
+const BASE_KTS  = 21;           // Titanic's service speed
+const MAX_HULL  = 100;
+
+// depth perspective: things low on the screen are "closer", so bigger
+const scaleAt = y => 0.72 + ((y - LANE_TOP) / (LANE_BOT - LANE_TOP)) * 0.55;
+
+// ---------------------------------------------------------------- state
+let state, ship, bergs, smoke, wake, splashes, stars, keys, shake, last, rafId;
+
+function makeStars() {
+  const s = [];
+  for (let i = 0; i < 160; i++) {
+    s.push({
+      x: Math.random() * W,
+      y: Math.random() * (HORIZON - 14),
+      r: Math.random() * 1.3 + 0.25,
+      tw: Math.random() * Math.PI * 2,
+      sp: 0.6 + Math.random() * 2.2
+    });
+  }
+  return s;
+}
+
+function reset(mode) {
+  state = {
+    mode,                 // "title" | "playing" | "paused" | "sunk" | "arrived"
+    miles: 0,
+    time: 0,
+    knots: BASE_KTS,
+    near: 0,              // near-miss count
+    bestNear: 0,
+    flash: 0,
+    invuln: 0,
+    spawnIn: 1.4,
+    sinkT: 0
+  };
+  ship = { x: 210, y: (LANE_TOP + LANE_BOT) / 2, vy: 0, hull: MAX_HULL, roll: 0, throttle: 0 };
+  bergs = [];
+  smoke = [];
+  wake = [];
+  splashes = [];
+  shake = 0;
+}
+
+stars = makeStars();
+keys = Object.create(null);
+reset("title");
+
+// ---------------------------------------------------------------- input
+const DOWN = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
+               ArrowLeft: "slow", KeyA: "slow", ArrowRight: "fast", KeyD: "fast" };
+
+addEventListener("keydown", e => {
+  if (DOWN[e.code]) { keys[DOWN[e.code]] = true; e.preventDefault(); }
+  if (e.code === "Space" || e.code === "Enter") {
+    e.preventDefault();
+    if (state.mode === "title") reset("playing");
+    else if (state.mode === "sunk" || state.mode === "arrived") reset("playing");
+    else if (state.mode === "paused") state.mode = "playing";
+  }
+  if (e.code === "KeyP") {
+    if (state.mode === "playing") state.mode = "paused";
+    else if (state.mode === "paused") state.mode = "playing";
+  }
+});
+addEventListener("keyup", e => { if (DOWN[e.code]) keys[DOWN[e.code]] = false; });
+
+let pointerY = null;
+function pointerPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return ((t.clientY - r.top) / r.height) * H;
+}
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+  if (state.mode === "title" || state.mode === "sunk" || state.mode === "arrived") { reset("playing"); return; }
+  pointerY = pointerPos(e);
+});
+canvas.addEventListener("pointermove", e => { if (pointerY !== null) pointerY = pointerPos(e); });
+canvas.addEventListener("pointerup", () => { pointerY = null; });
+canvas.addEventListener("pointerleave", () => { pointerY = null; });
+
+// ---------------------------------------------------------------- audio (tiny, optional)
+let actx = null;
+function beep(freq, dur, type = "sine", gain = 0.06) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(gain, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch (_) {}
+}
+
+// ---------------------------------------------------------------- icebergs
+function makeBerg(difficulty) {
+  const size = 26 + Math.random() * 66 + difficulty * 16;
+  const n = 6 + (Math.random() * 4 | 0);
+  const top = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const x = -size + t * 2 * size;
+    const h = size * (0.45 + Math.random() * 0.7) * Math.sin(Math.PI * t);
+    top.push([x, -h]);
+  }
+  const y = LANE_TOP + Math.random() * (LANE_BOT - LANE_TOP);
+  return {
+    x: W + size + 40,
+    y,
+    size,
+    top,
+    bobPhase: Math.random() * Math.PI * 2,
+    drift: (Math.random() - 0.5) * 8,
+    counted: false,
+    hit: false
+  };
+}
+
+// ---------------------------------------------------------------- update
+function update(dt) {
+  state.time += dt;
+  for (const s of stars) s.tw += dt * s.sp;
+
+  if (state.mode !== "playing") {
+    if (state.mode === "sunk") state.sinkT += dt;
+    shake = Math.max(0, shake - dt * 40);
+    state.flash = Math.max(0, state.flash - dt * 2.5);
+    return;
+  }
+
+  // ---- throttle & speed
+  const target = keys.fast ? 1 : keys.slow ? -1 : 0;
+  ship.throttle += (target - ship.throttle) * Math.min(1, dt * 5);
+  const ramp = 1 + (state.miles / GOAL) * 0.55;              // the ice field thickens
+  state.knots = (BASE_KTS * ramp) * (1 + ship.throttle * 0.42);
+  const scroll = state.knots * 11;                            // px/s of world movement
+  state.miles += state.knots * dt * 1.35;                     // miles/s
+
+  // ---- steering
+  let accel = 0;
+  if (keys.up) accel -= 1;
+  if (keys.down) accel += 1;
+  if (pointerY !== null) {
+    const want = Math.max(LANE_TOP, Math.min(LANE_BOT, pointerY));
+    accel = Math.max(-1, Math.min(1, (want - ship.y) / 45));
+  }
+  ship.vy += accel * 1750 * dt;
+  ship.vy *= Math.pow(0.0016, dt);            // heavy ship, lots of drag
+  ship.y += ship.vy * dt;
+  if (ship.y < LANE_TOP) { ship.y = LANE_TOP; ship.vy *= -0.28; }
+  if (ship.y > LANE_BOT) { ship.y = LANE_BOT; ship.vy *= -0.28; }
+  ship.roll += ((ship.vy / 900) - ship.roll) * Math.min(1, dt * 6);
+
+  // ---- spawn ice
+  const difficulty = state.miles / GOAL;
+  state.spawnIn -= dt * (1 + difficulty * 1.1) * (0.7 + ship.throttle * 0.35);
+  if (state.spawnIn <= 0) {
+    bergs.push(makeBerg(difficulty));
+    if (difficulty > 0.55 && Math.random() < 0.35) {
+      const b = makeBerg(difficulty);
+      b.x += 120 + Math.random() * 160;
+      bergs.push(b);
+    }
+    state.spawnIn = 0.85 - difficulty * 0.42 + Math.random() * 0.55;
+  }
+
+  // ---- move ice, collide
+  state.invuln = Math.max(0, state.invuln - dt);
+  const sScale = scaleAt(ship.y);
+  const shipBox = { x: ship.x - 96 * sScale, y: ship.y - 16 * sScale,
+                    w: 190 * sScale, h: 30 * sScale };
+
+  for (const b of bergs) {
+    b.x -= (scroll + b.drift) * dt;
+    b.bobPhase += dt * 1.6;
+
+    const bs = scaleAt(b.y);
+    const bw = b.size * 1.5 * bs, bh = b.size * 1.1 * bs;
+    const box = { x: b.x - bw / 2, y: b.y - bh * 0.55, w: bw, h: bh };
+
+    const overlap = box.x < shipBox.x + shipBox.w && box.x + box.w > shipBox.x &&
+                    box.y < shipBox.y + shipBox.h && box.y + box.h > shipBox.y;
+
+    if (overlap && !b.hit && state.invuln <= 0) {
+      b.hit = true;
+      const dmg = 16 + b.size * 0.30;
+      ship.hull -= dmg;
+      state.invuln = 1.15;
+      state.flash = 1;
+      shake = 18;
+      beep(70, 0.5, "sawtooth", 0.11);
+      for (let i = 0; i < 26; i++) {
+        splashes.push({
+          x: b.x, y: b.y,
+          vx: -60 - Math.random() * 200, vy: (Math.random() - 0.5) * 260,
+          life: 0.5 + Math.random() * 0.5, t: 0
+        });
+      }
+      if (ship.hull <= 0) { ship.hull = 0; state.mode = "sunk"; beep(48, 1.6, "triangle", 0.1); }
+    }
+
+    // near miss: passed the bow without a hit, and passed close
+    if (!b.counted && b.x + bw / 2 < ship.x - 90 * sScale) {
+      b.counted = true;
+      if (!b.hit && Math.abs(b.y - ship.y) < 62) { state.near++; beep(880, 0.07, "square", 0.03); }
+    }
+  }
+  bergs = bergs.filter(b => b.x > -260);
+
+  // ---- funnel smoke
+  if (Math.random() < dt * 34) {
+    const s = scaleAt(ship.y);
+    const i = Math.random() * 4 | 0;
+    smoke.push({
+      x: ship.x - 46 * s + i * 30 * s + (Math.random() - .5) * 5,
+      y: ship.y - 74 * s,
+      vx: -22 - scroll * 0.10 - Math.random() * 22,
+      vy: -18 - Math.random() * 22,
+      r: 6 + Math.random() * 7, life: 1.6 + Math.random(), t: 0
+    });
+  }
+  for (const p of smoke) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.r += dt * 15; }
+  smoke = smoke.filter(p => p.t < p.life);
+
+  // ---- wake & foam
+  if (Math.random() < dt * 40) {
+    const s = scaleAt(ship.y);
+    wake.push({ x: ship.x - 92 * s, y: ship.y + 6 * s + (Math.random() - .5) * 8,
+                r: 3 + Math.random() * 5, life: 1.1, t: 0 });
+  }
+  for (const p of wake) { p.t += dt; p.x -= (scroll * 0.55) * dt; p.r += dt * 12; }
+  wake = wake.filter(p => p.t < p.life);
+
+  for (const p of splashes) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 340 * dt; }
+  splashes = splashes.filter(p => p.t < p.life);
+
+  shake = Math.max(0, shake - dt * 34);
+  state.flash = Math.max(0, state.flash - dt * 2.2);
+
+  // ---- arrival
+  if (state.miles >= GOAL) {
+    state.miles = GOAL;
+    state.mode = "arrived";
+    state.bestNear = state.near;
+    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.35, "sine", 0.05), i * 130));
+  }
+}
+
+// ---------------------------------------------------------------- drawing
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, HORIZON);
+  g.addColorStop(0, "#04060f");
+  g.addColorStop(0.55, "#0a1330");
+  g.addColorStop(1, "#16243f");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, HORIZON);
+
+  for (const s of stars) {
+    ctx.globalAlpha = 0.35 + Math.sin(s.tw) * 0.3 + 0.3;
+    ctx.fillStyle = "#dce9ff";
+    ctx.fillRect(s.x, s.y, s.r, s.r);
+  }
+  ctx.globalAlpha = 1;
+
+  // moon
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  const mg = ctx.createRadialGradient(842, 66, 4, 842, 66, 62);
+  mg.addColorStop(0, "rgba(226,236,255,.55)");
+  mg.addColorStop(1, "rgba(226,236,255,0)");
+  ctx.fillStyle = mg;
+  ctx.beginPath(); ctx.arc(842, 66, 62, 0, 7); ctx.fill();
+  ctx.fillStyle = "#e8eeff";
+  ctx.beginPath(); ctx.arc(842, 66, 22, 0, 7); ctx.fill();
+  ctx.fillStyle = "rgba(180,196,224,.5)";
+  ctx.beginPath(); ctx.arc(836, 60, 5, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(850, 74, 3.5, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function drawSea() {
+  const g = ctx.createLinearGradient(0, HORIZON, 0, H);
+  g.addColorStop(0, "#12233d");
+  g.addColorStop(0.4, "#0c1a30");
+  g.addColorStop(1, "#050c18");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, HORIZON, W, H - HORIZON);
+
+  // horizon glow
+  ctx.fillStyle = "rgba(120,160,220,.14)";
+  ctx.fillRect(0, HORIZON - 1, W, 2);
+
+  // moon glitter path
+  ctx.save();
+  ctx.globalAlpha = 0.13;
+  ctx.fillStyle = "#cfe0ff";
+  for (let y = HORIZON + 4; y < H; y += 7) {
+    const t = (y - HORIZON) / (H - HORIZON);
+    const w = 24 + t * 130;
+    const wob = Math.sin(y * 0.35 + state.time * 2.2) * (6 + t * 22);
+    ctx.fillRect(842 - w / 2 + wob, y, w, 2);
+  }
+  ctx.restore();
+
+  // scrolling swell lines
+  const speed = state.mode === "playing" ? state.knots * 11 : 40;
+  ctx.strokeStyle = "rgba(160,200,255,.10)";
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 22; i++) {
+    const t = i / 21;
+    const y = HORIZON + 8 + Math.pow(t, 1.7) * (H - HORIZON - 8);
+    const off = (state.time * speed * (0.25 + t * 0.9)) % 240;
+    ctx.beginPath();
+    for (let x = -240; x < W + 240; x += 24) {
+      const px = x - off;
+      const py = y + Math.sin((x * 0.03) + state.time * 2 + i) * (1 + t * 3);
+      x === -240 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawBerg(b) {
+  const s = scaleAt(b.y);
+  const bob = Math.sin(b.bobPhase) * 2.5;
+  ctx.save();
+  ctx.translate(b.x, b.y + bob);
+  ctx.scale(s, s);
+
+  // submerged mass
+  ctx.globalAlpha = 0.30;
+  ctx.fillStyle = "#63c6e8";
+  ctx.beginPath();
+  ctx.moveTo(-b.size * 0.95, 0);
+  ctx.lineTo(b.size * 0.95, 0);
+  ctx.lineTo(b.size * 1.25, b.size * 0.5);
+  ctx.lineTo(b.size * 0.2, b.size * 1.5);
+  ctx.lineTo(-b.size * 0.9, b.size * 0.9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // above the waterline
+  ctx.beginPath();
+  ctx.moveTo(-b.size, 2);
+  for (const [x, y] of b.top) ctx.lineTo(x, y);
+  ctx.lineTo(b.size, 2);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, -b.size, 0, 4);
+  g.addColorStop(0, "#ffffff");
+  g.addColorStop(0.5, "#d8ecf7");
+  g.addColorStop(1, "#8fb9cf");
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.75)";
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  // crevasse shading
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = "#3d7fa0";
+  ctx.beginPath();
+  ctx.moveTo(0, 2);
+  ctx.lineTo(b.top[b.top.length - 2][0] * 0.5, b.top[b.top.length - 2][1] * 0.8);
+  ctx.lineTo(b.size, 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // waterline foam
+  ctx.strokeStyle = "rgba(230,248,255,.55)";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-b.size * 1.05, 2);
+  ctx.lineTo(b.size * 1.05, 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawShip() {
+  const s = scaleAt(ship.y);
+  let sink = 0, tilt = 0;
+  if (state.mode === "sunk") {
+    const t = Math.min(state.sinkT / 4.5, 1);
+    sink = t * 130;
+    tilt = t * 0.85;
+  }
+  ctx.save();
+  ctx.translate(ship.x, ship.y + sink);
+  ctx.rotate(ship.roll * 0.5 - tilt);
+  ctx.scale(s, s);
+  if (state.invuln > 0 && state.mode === "playing")
+    ctx.globalAlpha = 0.45 + Math.abs(Math.sin(state.invuln * 26)) * 0.55;
+
+  const hullCol = "#12161c";
+
+  // hull
+  ctx.fillStyle = hullCol;
+  ctx.beginPath();
+  ctx.moveTo(-92, -14);
+  ctx.lineTo(84, -14);
+  ctx.quadraticCurveTo(100, -12, 104, 0);       // bow
+  ctx.quadraticCurveTo(96, 16, 74, 18);
+  ctx.lineTo(-78, 18);
+  ctx.quadraticCurveTo(-94, 14, -92, -14);      // stern
+  ctx.closePath();
+  ctx.fill();
+
+  // red boot topping below waterline
+  ctx.fillStyle = "#7d1f16";
+  ctx.beginPath();
+  ctx.moveTo(-90, 8); ctx.lineTo(96, 8);
+  ctx.quadraticCurveTo(92, 17, 74, 18);
+  ctx.lineTo(-78, 18);
+  ctx.quadraticCurveTo(-90, 15, -90, 8);
+  ctx.closePath();
+  ctx.fill();
+
+  // white superstructure
+  ctx.fillStyle = "#e9e6dd";
+  roundRect(-62, -30, 124, 17, 2); ctx.fill();
+  ctx.fillStyle = "#f3f1ea";
+  roundRect(-42, -40, 78, 11, 2); ctx.fill();
+
+  // bridge
+  ctx.fillStyle = "#fbf9f3";
+  roundRect(20, -47, 24, 8, 2); ctx.fill();
+
+  // funnels
+  for (let i = 0; i < 4; i++) {
+    const x = -46 + i * 30;
+    ctx.fillStyle = "#d8a15c";
+    roundRect(x - 7, -74, 14, 35, 2); ctx.fill();
+    ctx.fillStyle = "#15181d";
+    roundRect(x - 7, -74, 14, 9, 2); ctx.fill();
+  }
+
+  // masts
+  ctx.strokeStyle = "#2c3038";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(66, -30); ctx.lineTo(66, -78); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-70, -30); ctx.lineTo(-70, -70); ctx.stroke();
+  ctx.strokeStyle = "rgba(140,160,190,.45)";
+  ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(66, -78); ctx.lineTo(-70, -70); ctx.stroke();
+
+  // portholes / lit windows
+  const lit = ship.hull > 0 && state.mode !== "sunk";
+  ctx.fillStyle = lit ? "#ffd98a" : "#3a3a3a";
+  for (let i = 0; i < 20; i++) ctx.fillRect(-58 + i * 6, -25, 3, 3);
+  for (let i = 0; i < 13; i++) ctx.fillRect(-38 + i * 6, -36, 3, 3);
+  ctx.fillStyle = lit ? "rgba(255,217,138,.7)" : "#2c2c2c";
+  for (let i = 0; i < 22; i++) ctx.fillRect(-80 + i * 7.5, -6, 3, 3);
+
+  // damage scarring
+  const dmg = 1 - ship.hull / MAX_HULL;
+  if (dmg > 0.02) {
+    ctx.fillStyle = "rgba(255,90,50,.5)";
+    ctx.globalAlpha = Math.min(1, dmg);
+    for (let i = 0; i < 8; i++) {
+      const seed = i * 37.7;
+      ctx.fillRect(-70 + (seed % 150), -12 + (seed % 22), 6 * dmg + 2, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of wake) {
+    ctx.globalAlpha = (1 - p.t / p.life) * 0.4;
+    ctx.fillStyle = "#cfe6ff";
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+  }
+  for (const p of splashes) {
+    ctx.globalAlpha = (1 - p.t / p.life);
+    ctx.fillStyle = "#eaf6ff";
+    ctx.fillRect(p.x, p.y, 3, 3);
+  }
+  for (const p of smoke) {
+    ctx.globalAlpha = (1 - p.t / p.life) * 0.3;
+    ctx.fillStyle = "#8f9bb0";
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawNewYork() {
+  // skyline rises out of the haze as you close the last 120 miles
+  const remain = GOAL - state.miles;
+  if (remain > 140) return;
+  const t = Math.min(1, (140 - remain) / 140);
+  ctx.save();
+  ctx.globalAlpha = t * 0.95;
+  const base = HORIZON + 2;
+  ctx.fillStyle = "#0d1626";
+  const towers = [
+    [40, 46], [78, 70], [112, 34], [146, 92], [186, 58], [224, 120],
+    [268, 74], [300, 44], [336, 100], [378, 62], [414, 38], [452, 84],
+    [560, 52], [596, 96], [636, 40], [672, 68], [712, 110], [758, 56],
+    [800, 78], [842, 44], [886, 88], [930, 60]
+  ];
+  for (const [x, h] of towers) {
+    const hh = h * t;
+    ctx.fillRect(x, base - hh, 26, hh);
+    ctx.fillStyle = "rgba(255,214,140,.75)";
+    for (let wy = base - hh + 6; wy < base - 4; wy += 8)
+      for (let wx = x + 4; wx < x + 22; wx += 7)
+        if (((wx * 7 + wy * 13) % 5) < 2) ctx.fillRect(wx, wy, 2.5, 3);
+    ctx.fillStyle = "#0d1626";
+  }
+  // Lady Liberty
+  ctx.fillStyle = "#1b3a34";
+  ctx.fillRect(500, base - 44, 12, 44);
+  ctx.beginPath(); ctx.arc(506, base - 50, 6, 0, 7); ctx.fill();
+  ctx.fillStyle = "rgba(255,225,150,.9)";
+  ctx.beginPath(); ctx.arc(513, base - 62, 3.2, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- HUD
+function drawHUD() {
+  ctx.save();
+  ctx.font = "13px Georgia, serif";
+  ctx.textBaseline = "middle";
+
+  // voyage progress bar
+  const bx = 28, by = 26, bw = W - 56, bh = 9;
+  ctx.fillStyle = "rgba(6,12,22,.75)";
+  roundRect(bx - 8, by - 15, bw + 16, 42, 6); ctx.fill();
+  ctx.strokeStyle = "rgba(140,170,210,.25)";
+  ctx.lineWidth = 1; ctx.stroke();
+
+  ctx.fillStyle = "rgba(255,255,255,.10)";
+  roundRect(bx, by, bw, bh, 4); ctx.fill();
+  const p = state.miles / GOAL;
+  const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+  g.addColorStop(0, "#4a90d9");
+  g.addColorStop(1, "#f0c674");
+  ctx.fillStyle = g;
+  roundRect(bx, by, Math.max(3, bw * p), bh, 4); ctx.fill();
+
+  // ship marker
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(bx + bw * p, by + bh / 2, 4.5, 0, 7);
+  ctx.fill();
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#8fa6c4";
+  ctx.fillText("SOUTHAMPTON", bx, by + 22);
+  ctx.textAlign = "right";
+  ctx.fillStyle = p > 0.98 ? "#f0c674" : "#8fa6c4";
+  ctx.fillText("NEW YORK", bx + bw, by + 22);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#eaf2ff";
+  ctx.font = "bold 15px Georgia, serif";
+  ctx.fillText(`${Math.floor(state.miles)} / ${GOAL} MILES`, W / 2, by + 22);
+
+  // hull integrity
+  const hx = 28, hy = H - 40;
+  ctx.font = "12px Georgia, serif";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#8fa6c4";
+  ctx.fillText("HULL INTEGRITY", hx, hy - 12);
+  ctx.fillStyle = "rgba(255,255,255,.10)";
+  roundRect(hx, hy, 190, 12, 4); ctx.fill();
+  const hp = ship.hull / MAX_HULL;
+  ctx.fillStyle = hp > 0.6 ? "#5fd08a" : hp > 0.3 ? "#f0c674" : "#e2604f";
+  roundRect(hx, hy, Math.max(0, 190 * hp), 12, 4); ctx.fill();
+  ctx.fillStyle = "#eaf2ff";
+  ctx.fillText(`${Math.round(ship.hull)}%`, hx + 200, hy + 6);
+
+  // speed + near misses
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#8fa6c4";
+  ctx.fillText("SPEED", W - 28, hy - 12);
+  ctx.font = "bold 18px Georgia, serif";
+  ctx.fillStyle = ship.throttle > 0.4 ? "#f0c674" : "#eaf2ff";
+  ctx.fillText(`${state.knots.toFixed(1)} kn`, W - 28, hy + 6);
+  ctx.font = "12px Georgia, serif";
+  ctx.fillStyle = "#8fa6c4";
+  ctx.fillText(`near misses: ${state.near}`, W - 28, hy + 26);
+
+  ctx.restore();
+}
+
+function panel(title, lines, accent) {
+  ctx.save();
+  ctx.fillStyle = "rgba(4,8,16,.82)";
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = "center";
+  ctx.fillStyle = accent;
+  ctx.font = "bold 46px Georgia, serif";
+  ctx.fillText(title, W / 2, H / 2 - 60);
+  ctx.font = "17px Georgia, serif";
+  lines.forEach((l, i) => {
+    ctx.fillStyle = i === lines.length - 1 ? "#8fa6c4" : "#eaf2ff";
+    ctx.fillText(l, W / 2, H / 2 - 8 + i * 30);
+  });
+  ctx.restore();
+}
+
+function draw() {
+  ctx.save();
+  if (shake > 0.4) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
+
+  drawSky();
+  drawNewYork();
+  drawSea();
+
+  // far icebergs first so close ones overlap them
+  const sorted = bergs.slice().sort((a, b) => a.y - b.y);
+  const shipY = ship.y;
+  for (const b of sorted) if (b.y <= shipY) drawBerg(b);
+  drawParticles();
+  drawShip();
+  for (const b of sorted) if (b.y > shipY) drawBerg(b);
+
+  // vignette
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,.55)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  if (state.flash > 0) {
+    ctx.fillStyle = `rgba(255,80,60,${state.flash * 0.28})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.restore();
+
+  if (state.mode !== "title") drawHUD();
+
+  if (state.mode === "title") {
+    panel("R M S   T I T A N I C", [
+      "3000 miles of North Atlantic ice lie between you and New York.",
+      "Steer with W/S or ↑/↓ · throttle with A/D · P to pause.",
+      "History says you don't make it. Prove otherwise.",
+      "— press SPACE or click to cast off —"
+    ], "#f0c674");
+  } else if (state.mode === "paused") {
+    panel("PAUSED", ["All engines stop.", "— press P or SPACE to resume —"], "#8fa6c4");
+  } else if (state.mode === "sunk") {
+    panel("SHE'S GONE DOWN", [
+      `You made ${Math.floor(state.miles)} of ${GOAL} miles.`,
+      `${GOAL - Math.floor(state.miles)} miles short of New York Harbor.`,
+      `Near misses: ${state.near}`,
+      "— press SPACE to sail again —"
+    ], "#e2604f");
+  } else if (state.mode === "arrived") {
+    panel("NEW YORK HARBOR", [
+      "3000 miles. Not a scratch history could record.",
+      `Arrived with ${Math.round(ship.hull)}% hull and ${state.near} near misses.`,
+      `Crossing time: ${Math.floor(state.time / 60)}m ${Math.floor(state.time % 60)}s`,
+      "— press SPACE to sail again —"
+    ], "#f0c674");
+  }
+}
+
+// ---------------------------------------------------------------- loop
+function frame(now) {
+  const dt = Math.min(0.05, (now - (last || now)) / 1000);
+  last = now;
+  update(dt);
+  draw();
+  rafId = requestAnimationFrame(frame);
+}
+rafId = requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
