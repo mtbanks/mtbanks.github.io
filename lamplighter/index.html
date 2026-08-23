@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lamplighter</title>
+<meta name="description" content="Light every street lamp before midnight. The things in the fog are only in the dark.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --night:#080C18; --cobble:#171D2E; --stone:#232B40; --edge:#313B56;
+  --flame:#FFB65C; --warm:#FFDCA8; --ember:#FF7A3D;
+  --mist:#8496BC; --dim:#5A6789; --paper:#F2ECDC;
+  --display:"Cinzel",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--night); color:var(--paper); font-family:var(--mono);
+  display:grid; place-items:center; overflow:hidden;
+  background-image:radial-gradient(60vw 40vh at 50% 0%, #12182C, transparent 70%);
+}
+#wrap{position:relative;width:min(100vw,calc(100vh*16/10));aspect-ratio:16/10;max-height:100vh}
+canvas{width:100%;height:100%;display:block;background:#080C18}
+.veil{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:24px;
+  background:radial-gradient(60% 60% at 50% 45%, rgba(10,14,26,.86), rgba(6,9,18,.96));
+  backdrop-filter:blur(2px)}
+.veil.on{display:grid}
+.veil h1{font-family:var(--display);font-weight:700;font-size:clamp(40px,8vw,84px);letter-spacing:.14em;
+  margin:0;color:var(--warm);text-shadow:0 0 40px rgba(255,182,92,.35)}
+.veil h2{font-family:var(--display);font-weight:500;font-size:clamp(22px,4vw,38px);letter-spacing:.18em;
+  margin:0;color:var(--flame)}
+.veil p{max-width:52ch;margin:14px auto 0;color:var(--mist);line-height:1.65;font-size:13px}
+.veil .sub{color:var(--dim);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;margin-top:6px}
+.keys{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:22px auto 0;max-width:520px}
+.k{display:flex;align-items:center;gap:8px;background:rgba(35,43,64,.7);border:1px solid var(--edge);
+  border-radius:7px;padding:7px 11px;font-size:11.5px;color:var(--mist)}
+.k b{font-family:var(--mono);font-weight:600;font-size:11px;color:var(--warm);background:#0C1120;
+  border:1px solid var(--edge);border-radius:4px;padding:3px 7px;letter-spacing:.05em}
+.btn{margin-top:26px;font-family:var(--display);font-weight:700;font-size:20px;letter-spacing:.2em;
+  color:#150E04;background:linear-gradient(180deg,var(--warm),var(--flame));
+  border:0;border-radius:6px;padding:13px 40px;cursor:pointer;box-shadow:0 0 34px rgba(255,182,92,.28)}
+.btn:active{transform:translateY(2px)}
+.btn:focus-visible{outline:2px solid var(--warm);outline-offset:4px}
+.stat{display:flex;gap:26px;justify-content:center;margin-top:20px}
+.stat div{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.stat b{display:block;font-family:var(--display);font-size:30px;color:var(--paper);margin-top:4px;letter-spacing:.04em}
+#sound{position:absolute;right:12px;bottom:10px;background:none;border:0;color:var(--dim);
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;cursor:pointer}
+#sound:hover{color:var(--warm)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="1280" height="800"></canvas>
+
+  <div class="veil on" id="v-title">
+    <div>
+      <h1>LAMPLIGHTER</h1>
+      <p class="sub">the fog came early tonight</p>
+      <p>Every lamp on the street is out. Light them all before the clock strikes twelve.<br>
+         Your lantern burns oil, and the oil runs low — stand in the light you've made to fill it again.<br>
+         <b style="color:var(--paper)">The things in the fog cannot enter the light.</b></p>
+      <div class="keys">
+        <div class="k"><b>W A S D</b> walk</div>
+        <div class="k"><b>SPACE</b> hold to light a lamp</div>
+        <div class="k"><b>M</b> sound</div>
+      </div>
+      <button class="btn" id="begin">BEGIN</button>
+    </div>
+  </div>
+
+  <div class="veil" id="v-night">
+    <div>
+      <h2 id="nightno">NIGHT ONE</h2>
+      <p class="sub" id="nightsub">four lamps · the fog is thin</p>
+    </div>
+  </div>
+
+  <div class="veil" id="v-dawn">
+    <div>
+      <h1 style="font-size:clamp(34px,6vw,62px)">DAWN</h1>
+      <p id="dawntext">Every lamp is burning. The fog pulls back down the hill.</p>
+      <div class="stat">
+        <div>LAMPS LIT<b id="d-lamps">0</b></div>
+        <div>TIME LEFT<b id="d-time">0</b></div>
+        <div>NIGHTS<b id="d-nights">1</b></div>
+      </div>
+      <button class="btn" id="next">NEXT NIGHT</button>
+    </div>
+  </div>
+
+  <div class="veil" id="v-fail">
+    <div>
+      <h1 style="font-size:clamp(34px,6vw,62px);color:#8FA0C8" id="failtitle">MIDNIGHT</h1>
+      <p id="failtext">The clock struck twelve with lamps still dark.</p>
+      <div class="stat">
+        <div>LAMPS LIT<b id="f-lamps">0</b></div>
+        <div>NIGHT<b id="f-night">1</b></div>
+        <div>BEST<b id="f-best">1</b></div>
+      </div>
+      <button class="btn" id="retry">TRY AGAIN</button>
+    </div>
+  </div>
+
+  <button id="sound">♪ SOUND ON</button>
+</div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════
+   LAMPLIGHTER
+   Light every lamp before midnight. The dark is not empty.
+   ═══════════════════════════════════════════════════════════════ */
+const cv=document.getElementById('c'), g=cv.getContext('2d');
+const VW=1280, VH=800;                       /* view size */
+const rnd=(a,b)=>Math.random()*(b-a)+a;
+const ri=(a,b)=>Math.floor(rnd(a,b+1));
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const dist=(a,b,c,d)=>Math.hypot(a-c,b-d);
+
+/* light map, composited over the scene each frame */
+const lm=document.createElement('canvas'); lm.width=VW; lm.height=VH;
+const L=lm.getContext('2d');
+
+/* ── sound ───────────────────────────────────────────────────── */
+let AC=null, muted=false;
+const ac=()=>AC||(AC=new (window.AudioContext||window.webkitAudioContext)());
+function tone(f,d=.12,type='sine',v=.1,delay=0,f2){
+  if(muted) return;
+  try{
+    const c=ac(),s=c.currentTime+delay,o=c.createOscillator(),gn=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(f,s);
+    if(f2) o.frequency.exponentialRampToValueAtTime(f2,s+d);
+    gn.gain.setValueAtTime(0,s);
+    gn.gain.linearRampToValueAtTime(v,s+.012);
+    gn.gain.exponentialRampToValueAtTime(.0001,s+d);
+    o.connect(gn).connect(c.destination); o.start(s); o.stop(s+d+.02);
+  }catch(e){}
+}
+function hiss(d=.2,v=.1,delay=0,cut=1400){
+  if(muted) return;
+  try{
+    const c=ac(),s=c.currentTime+delay,n=Math.max(1,c.sampleRate*d);
+    const b=c.createBuffer(1,n,c.sampleRate), ch=b.getChannelData(0);
+    for(let i=0;i<n;i++) ch[i]=(Math.random()*2-1)*(1-i/n);
+    const src=c.createBufferSource(), gn=c.createGain(), f=c.createBiquadFilter();
+    f.type='bandpass'; f.frequency.value=cut; f.Q.value=.8;
+    gn.gain.value=v; src.buffer=b; src.connect(f).connect(gn).connect(c.destination); src.start(s);
+  }catch(e){}
+}
+const SFX={
+  strike:()=>{ hiss(.22,.14,0,2600); tone(180,.1,'sawtooth',.05); },
+  lit:()=>{ [523.25,659.25,783.99].forEach((f,i)=>tone(f,.5,'sine',.09,i*.07)); hiss(.3,.06,0,700); },
+  refill:()=>tone(660,.14,'sine',.05,0,880),
+  hurt:()=>{ tone(150,.26,'sawtooth',.1,0,70); hiss(.24,.09,0,500); },
+  near:()=>hiss(.3,.035,0,320),
+  chime:n=>{ for(let i=0;i<n;i++){ tone(392,1.1,'sine',.08,i*.42); tone(196,1.3,'sine',.06,i*.42);} },
+  dawn:()=>[392,494,587,784].forEach((f,i)=>tone(f,1.2,'sine',.09,i*.16)),
+  fail:()=>[311,262,220,175].forEach((f,i)=>tone(f,.9,'sine',.09,i*.2)),
+  step:()=>hiss(.05,.02,0,260)
+};
+
+/* ── input ───────────────────────────────────────────────────── */
+const key={};
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
+  key[k]=true;
+  if(k==='m') toggleSound();
+  try{ac().resume();}catch(err){}
+});
+addEventListener('keyup',e=>key[e.key.toLowerCase()]=false);
+function toggleSound(){
+  muted=!muted;
+  document.getElementById('sound').textContent = muted?'♪ SOUND OFF':'♪ SOUND ON';
+}
+document.getElementById('sound').onclick=toggleSound;
+
+/* ── world ───────────────────────────────────────────────────── */
+const CELL=240, ROAD=104;                    /* block size and street width */
+let W=0,H=0;                                 /* world size for this night */
+let buildings=[], lamps=[], shades=[], motes=[], sparks=[];
+let cam={x:0,y:0};
+let night=1, best=1, state='title', tick=0;
+let clock=0, clockMax=0, msg='', msgT=0, shakeAmt=0;
+
+const P={x:0,y:0,vx:0,vy:0,r:13,face:1,oil:1,hearts:3,iframe:0,walk:0,lighting:null,litT:0,step:0};
+
+function nightPlan(n){
+  return {
+    lamps: Math.min(14, 3+n),
+    cols:  Math.min(6, 3+Math.floor(n/3)),
+    rows:  Math.min(5, 2+Math.floor(n/4)),
+    shades: Math.min(11, 1+Math.floor(n*.9)),
+    speed: 1.05 + n*.07,
+    seconds: 62 + Math.min(9,n)*7,
+    oilDrain: .00060 + n*.000035
+  };
+}
+
+function buildTown(){
+  const p=nightPlan(night);
+  W = p.cols*CELL + ROAD;
+  H = p.rows*CELL + ROAD;
+  buildings=[]; lamps=[]; shades=[]; motes=[]; sparks=[];
+
+  /* buildings sit inside each block, leaving streets between */
+  for(let cx=0;cx<p.cols;cx++) for(let cy=0;cy<p.rows;cy++){
+    if(Math.random()<.14) continue;                       /* an empty lot or a little square */
+    const bx=ROAD+cx*CELL, by=ROAD+cy*CELL;
+    const w=CELL-ROAD-ri(0,26), h=CELL-ROAD-ri(0,26);
+    buildings.push({x:bx,y:by,w,h,
+      tone:ri(0,3), roof:ri(0,2),
+      wins:Array.from({length:ri(3,7)},()=>({x:rnd(.12,.82),y:rnd(.16,.72),lit:Math.random()<.28}))});
+  }
+
+  /* lamps at street corners */
+  const spots=[];
+  for(let cx=0;cx<=p.cols;cx++) for(let cy=0;cy<=p.rows;cy++)
+    spots.push({x:cx*CELL+ROAD/2, y:cy*CELL+ROAD/2});
+  /* keep them apart and inside the world */
+  shuffle(spots);
+  for(const s of spots){
+    if(lamps.length>=p.lamps) break;
+    if(s.x<40||s.y<40||s.x>W-40||s.y>H-40) continue;
+    if(lamps.some(l=>dist(l.x,l.y,s.x,s.y)<CELL*.9)) continue;
+    lamps.push({x:s.x,y:s.y,lit:false,glow:0,flicker:rnd(0,6)});
+  }
+  while(lamps.length<p.lamps&&spots.length){
+    const s=spots.pop();
+    if(s&&!lamps.some(l=>dist(l.x,l.y,s.x,s.y)<70)) lamps.push({x:s.x,y:s.y,lit:false,glow:0,flicker:rnd(0,6)});
+  }
+
+  /* you start at the far corner from the nearest lamp cluster */
+  P.x=ROAD/2; P.y=ROAD/2; P.vx=P.vy=0;
+  P.oil=1; P.hearts=3; P.iframe=0; P.lighting=null;
+
+  for(let i=0;i<p.shades;i++) spawnShade(true);
+  for(let i=0;i<90;i++) motes.push({x:rnd(0,W),y:rnd(0,H),z:rnd(.3,1),a:rnd(0,6.28),sp:rnd(.1,.5)});
+
+  clockMax=p.seconds*60; clock=clockMax;
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=ri(0,i); [a[i],a[j]]=[a[j],a[i]]; } }
+
+function spawnShade(far){
+  let x,y,tries=0;
+  do{
+    x=rnd(30,W-30); y=rnd(30,H-30); tries++;
+  }while(tries<40&&(inBuilding(x,y,16)||dist(x,y,P.x,P.y)<(far?520:340)||litAt(x,y)>.25));
+  shades.push({x,y,vx:0,vy:0,r:15,wob:rnd(0,6.28),fade:0,hurtT:0,
+               eye:rnd(-.2,.2), speed:nightPlan(night).speed*rnd(.85,1.15)});
+}
+
+function inBuilding(x,y,pad=0){
+  return buildings.some(b=>x>b.x-pad&&x<b.x+b.w+pad&&y>b.y-pad&&y<b.y+b.h+pad);
+}
+/* how lit a world point is: 0 dark, 1 bright */
+function litAt(x,y){
+  let v=0;
+  for(const l of lamps){
+    if(!l.lit) continue;
+    const d=dist(x,y,l.x,l.y);
+    if(d<190) v=Math.max(v,1-d/190);
+  }
+  const d=dist(x,y,P.x,P.y), pr=60+P.oil*90;
+  if(d<pr) v=Math.max(v,(1-d/pr)*(.35+P.oil*.6));
+  return v;
+}
+
+/* ── the night ───────────────────────────────────────────────── */
+function startNight(){
+  buildTown();
+  state='intro';
+  const p=nightPlan(night);
+  document.getElementById('nightno').textContent='NIGHT '+numeral(night);
+  document.getElementById('nightsub').textContent =
+    p.lamps+' lamps · '+(night<3?'the fog is thin':night<6?'the fog is thickening':'the fog is deep');
+  veil('v-night');
+  setTimeout(()=>{ veil(null); state='play'; SFX.strike(); },1500);
+}
+function numeral(n){
+  const w=['ZERO','ONE','TWO','THREE','FOUR','FIVE','SIX','SEVEN','EIGHT','NINE','TEN',
+           'ELEVEN','TWELVE','THIRTEEN','FOURTEEN','FIFTEEN'];
+  return w[n]||String(n);
+}
+function veil(id){
+  document.querySelectorAll('.veil').forEach(v=>v.classList.remove('on'));
+  if(id) document.getElementById(id).classList.add('on');
+}
+function say(s,d=150){ msg=s; msgT=d; }
+
+/* ── update ──────────────────────────────────────────────────── */
+function update(){
+  tick++;
+  if(msgT>0) msgT--;
+  if(shakeAmt>.3) shakeAmt*=.9; else shakeAmt=0;
+  if(state!=='play') return;
+
+  /* clock */
+  clock--;
+  if(clock===clockMax*.5|0) say('HALF PAST');
+  if(clock<=0){ return failNight('MIDNIGHT','The clock struck twelve with lamps still dark.'); }
+  if(clock===600) SFX.chime(1);
+
+  /* move */
+  let dx=0,dy=0;
+  if(key['a']||key['arrowleft']) dx-=1;
+  if(key['d']||key['arrowright']) dx+=1;
+  if(key['w']||key['arrowup']) dy-=1;
+  if(key['s']||key['arrowdown']) dy+=1;
+  const moving=(dx||dy)&&!P.lighting;
+  if(dx||dy){ const m=Math.hypot(dx,dy)||1; dx/=m; dy/=m; }
+  if(dx) P.face=dx>0?1:-1;
+  const spd=P.lighting?0:2.9;
+  P.vx+=(dx*spd-P.vx)*.28; P.vy+=(dy*spd-P.vy)*.28;
+  moveWithWalls();
+  if(moving){ P.walk+=.24; if(++P.step%22===0) SFX.step(); } else P.walk*=.82;
+
+  /* the lantern burns down; lamplight fills it again */
+  const standing=lamps.some(l=>l.lit&&dist(P.x,P.y,l.x,l.y)<150);
+  if(standing){
+    if(P.oil<1){ P.oil=Math.min(1,P.oil+.007); if(tick%26===0) SFX.refill(); }
+  } else {
+    P.oil=Math.max(0,P.oil-nightPlan(night).oilDrain);
+  }
+  if(P.oil<=0&&tick%90===0) say('YOUR LANTERN IS OUT');
+
+  /* lighting a lamp */
+  const near=lamps.find(l=>!l.lit&&dist(P.x,P.y,l.x,l.y)<52);
+  if(key[' ']&&near){
+    if(!P.lighting){ P.lighting=near; P.litT=0; SFX.strike(); }
+    if(P.lighting===near){
+      P.litT++;
+      if(P.litT%7===0) sparks.push({x:near.x+rnd(-6,6),y:near.y-46,vx:rnd(-.7,.7),vy:rnd(-1.4,-.3),life:rnd(16,30)});
+      if(P.litT>=42){
+        near.lit=true; near.glow=0; P.lighting=null; SFX.lit(); shakeAmt=3;
+        for(let i=0;i<26;i++) sparks.push({x:near.x,y:near.y-46,vx:rnd(-2.4,2.4),vy:rnd(-2.6,.6),life:rnd(20,46)});
+        const left=lamps.filter(l=>!l.lit).length;
+        say(left? left+(left===1?' LAMP LEFT':' LAMPS LEFT') : 'THAT IS THE LAST ONE');
+        if(!left) return winNight();
+      }
+    }
+  } else { P.lighting=null; P.litT=0; }
+
+  if(P.iframe>0) P.iframe--;
+
+  /* the things in the fog */
+  shades.forEach(s=>{
+    s.wob+=.05;
+    const lit=litAt(s.x,s.y);
+    if(lit>.22){                                   /* light burns them off */
+      s.fade=Math.min(1,s.fade+.05);
+      const a=Math.atan2(s.y-P.y,s.x-P.x)+rnd(-.5,.5);
+      s.vx+=Math.cos(a)*.4; s.vy+=Math.sin(a)*.4;
+      if(s.fade>=1){ s.gone=true; for(let i=0;i<10;i++)
+        sparks.push({x:s.x,y:s.y,vx:rnd(-1.4,1.4),vy:rnd(-1.6,.4),life:rnd(14,28),cold:1}); }
+    } else {
+      s.fade=Math.max(0,s.fade-.03);
+      const d=dist(s.x,s.y,P.x,P.y);
+      const a=Math.atan2(P.y-s.y,P.x-s.x)+Math.sin(s.wob)*.4;
+      const push=d<420?s.speed*.055:s.speed*.02;
+      s.vx+=Math.cos(a)*push; s.vy+=Math.sin(a)*push;
+      if(d<150&&tick%50===0) SFX.near();
+    }
+    s.vx*=.94; s.vy*=.94;
+    s.x=clamp(s.x+s.vx,14,W-14); s.y=clamp(s.y+s.vy,14,H-14);
+    if(inBuilding(s.x,s.y,4)){ s.vx*=-.5; s.vy*=-.5; s.x-=s.vx*2; s.y-=s.vy*2; }
+    if(s.hurtT>0) s.hurtT--;
+    if(P.iframe<=0&&dist(s.x,s.y,P.x,P.y)<s.r+P.r){
+      P.hearts--; P.iframe=90; shakeAmt=13; SFX.hurt();
+      const a=Math.atan2(P.y-s.y,P.x-s.x);
+      P.vx=Math.cos(a)*9; P.vy=Math.sin(a)*9;
+      P.oil=Math.max(0,P.oil-.22);
+      s.vx=-Math.cos(a)*6; s.vy=-Math.sin(a)*6;
+      say(P.hearts>0?'IT TOUCHED YOU':'');
+      if(P.hearts<=0) return failNight('TAKEN','The fog closed over you on an unlit street.');
+    }
+  });
+  shades=shades.filter(s=>!s.gone);
+  /* the night keeps sending more */
+  const want=nightPlan(night).shades;
+  if(shades.length<want && tick%180===0) spawnShade(false);
+
+  /* dust in the air */
+  motes.forEach(m=>{ m.a+=.006; m.x+=Math.cos(m.a)*m.sp; m.y+=Math.sin(m.a*.7)*m.sp*.5;
+    if(m.x<0)m.x=W; if(m.x>W)m.x=0; if(m.y<0)m.y=H; if(m.y>H)m.y=0; });
+  sparks.forEach(s=>{ s.x+=s.vx; s.y+=s.vy; s.vy+=.05; s.life--; });
+  sparks=sparks.filter(s=>s.life>0);
+  lamps.forEach(l=>{ if(l.lit) l.glow=Math.min(1,l.glow+.045); l.flicker+=.1; });
+
+  /* camera */
+  const tx=clamp(P.x-VW/2, 0, Math.max(0,W-VW));
+  const ty=clamp(P.y-VH/2, 0, Math.max(0,H-VH));
+  cam.x+=(tx-cam.x)*.1; cam.y+=(ty-cam.y)*.1;
+}
+
+function moveWithWalls(){
+  P.x+=P.vx;
+  buildings.forEach(b=>{
+    if(P.x+P.r>b.x&&P.x-P.r<b.x+b.w&&P.y+P.r>b.y&&P.y-P.r<b.y+b.h){
+      P.x = P.vx>0 ? b.x-P.r : b.x+b.w+P.r; P.vx=0;
+    }
+  });
+  P.y+=P.vy;
+  buildings.forEach(b=>{
+    if(P.x+P.r>b.x&&P.x-P.r<b.x+b.w&&P.y+P.r>b.y&&P.y-P.r<b.y+b.h){
+      P.y = P.vy>0 ? b.y-P.r : b.y+b.h+P.r; P.vy=0;
+    }
+  });
+  P.x=clamp(P.x,P.r,W-P.r); P.y=clamp(P.y,P.r,H-P.r);
+}
+
+function winNight(){
+  state='dawn'; SFX.dawn();
+  best=Math.max(best,night);
+  document.getElementById('d-lamps').textContent=lamps.length;
+  document.getElementById('d-time').textContent=Math.ceil(clock/60)+'s';
+  document.getElementById('d-nights').textContent=night;
+  document.getElementById('dawntext').textContent =
+    clock>clockMax*.5 ? 'Every lamp is burning, and with time to spare. The fog pulls back down the hill.'
+                      : 'Every lamp is burning. The last one caught just before the bells.';
+  setTimeout(()=>veil('v-dawn'),900);
+}
+function failNight(title,text){
+  state='fail'; SFX.fail(); SFX.chime(3);
+  best=Math.max(best,night);
+  document.getElementById('failtitle').textContent=title;
+  document.getElementById('failtext').textContent=text;
+  document.getElementById('f-lamps').textContent=lamps.filter(l=>l.lit).length+' / '+lamps.length;
+  document.getElementById('f-night').textContent=night;
+  document.getElementById('f-best').textContent=best;
+  setTimeout(()=>veil('v-fail'),800);
+}
+
+/* ══ DRAW ══════════════════════════════════════════════════════ */
+function draw(){
+  g.setTransform(1,0,0,1,0,0);
+  g.fillStyle='#070A14'; g.fillRect(0,0,VW,VH);
+  const sx=shakeAmt?rnd(-shakeAmt,shakeAmt):0, sy=shakeAmt?rnd(-shakeAmt,shakeAmt):0;
+  g.save(); g.translate(-cam.x+sx,-cam.y+sy);
+
+  drawStreets();
+  drawBuildings();
+  drawLamps();
+  drawShades();
+  drawPlayer();
+  drawSparks();
+
+  g.restore();
+
+  compositeLight();
+  drawFogMotes();
+  drawHUD();
+}
+
+function drawStreets(){
+  /* cobbles */
+  g.fillStyle='#131826'; g.fillRect(0,0,W,H);
+  g.fillStyle='#171E30';
+  const s=26;
+  for(let y=0;y<H;y+=s){
+    for(let x=((y/s)%2)*13;x<W;x+=s){
+      g.fillRect(x,y,s-3,s-3);
+    }
+  }
+  /* damp shine down the middle of each street */
+  g.fillStyle='rgba(70,95,150,.05)';
+  for(let cx=0;cx<=W/CELL;cx++) g.fillRect(cx*CELL+ROAD/2-14,0,28,H);
+  for(let cy=0;cy<=H/CELL;cy++) g.fillRect(0,cy*CELL+ROAD/2-14,W,28);
+  /* kerbs */
+  g.strokeStyle='rgba(120,140,185,.10)'; g.lineWidth=3;
+  buildings.forEach(b=>g.strokeRect(b.x-9,b.y-9,b.w+18,b.h+18));
+}
+
+function drawBuildings(){
+  const walls=['#1D2436','#212940','#1A2132','#242C44'];
+  buildings.forEach(b=>{
+    g.fillStyle='rgba(0,0,0,.4)'; g.fillRect(b.x+6,b.y+8,b.w,b.h);
+    g.fillStyle=walls[b.tone]; g.fillRect(b.x,b.y,b.w,b.h);
+    /* brick courses */
+    g.fillStyle='rgba(0,0,0,.14)';
+    for(let y=b.y+10;y<b.y+b.h;y+=13) g.fillRect(b.x,y,b.w,2);
+    /* roof cap */
+    g.fillStyle=b.roof? '#2C3550' : '#333D5C';
+    g.fillRect(b.x-6,b.y-6,b.w+12,14);
+    /* a chimney or two */
+    g.fillStyle='#2A3350';
+    g.fillRect(b.x+b.w*.22,b.y-22,15,18);
+    if(b.roof) g.fillRect(b.x+b.w*.68,b.y-18,13,14);
+    /* windows: some warm, most dark */
+    b.wins.forEach(w=>{
+      const wx=b.x+w.x*b.w, wy=b.y+w.y*b.h;
+      g.fillStyle=w.lit?'rgba(255,196,110,.85)':'rgba(12,17,30,.9)';
+      g.fillRect(wx,wy,17,22);
+      g.strokeStyle='rgba(0,0,0,.5)'; g.lineWidth=2;
+      g.beginPath(); g.moveTo(wx+8.5,wy); g.lineTo(wx+8.5,wy+22);
+      g.moveTo(wx,wy+11); g.lineTo(wx+17,wy+11); g.stroke();
+    });
+    /* a door */
+    g.fillStyle='#141A2A'; g.fillRect(b.x+b.w*.45,b.y+b.h-26,22,26);
+    g.fillStyle='rgba(255,196,110,.25)'; g.fillRect(b.x+b.w*.45+6,b.y+b.h-20,10,4);
+  });
+}
+
+function drawLamps(){
+  lamps.forEach(l=>{
+    const flick=l.lit? .92+Math.sin(l.flicker)*.05+Math.sin(l.flicker*2.7)*.03 : 0;
+    /* pool on the ground */
+    if(l.lit){
+      const rg=g.createRadialGradient(l.x,l.y,4,l.x,l.y,170*l.glow);
+      rg.addColorStop(0,'rgba(255,190,110,.20)');
+      rg.addColorStop(.5,'rgba(255,160,80,.07)');
+      rg.addColorStop(1,'rgba(255,140,60,0)');
+      g.fillStyle=rg; g.beginPath(); g.arc(l.x,l.y,170*l.glow,0,7); g.fill();
+    }
+    /* the post */
+    g.fillStyle='rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(l.x,l.y+4,15,6,0,0,7); g.fill();
+    g.fillStyle='#2A3450';
+    g.fillRect(l.x-4,l.y-46,8,46);
+    g.fillStyle='#333E5E'; g.fillRect(l.x-9,l.y-4,18,6);
+    g.fillRect(l.x-7,l.y-52,14,7);
+    /* the lantern head */
+    g.fillStyle=l.lit?'#4A5578':'#2E3856';
+    g.beginPath();
+    g.moveTo(l.x-11,l.y-52); g.lineTo(l.x+11,l.y-52);
+    g.lineTo(l.x+8,l.y-76); g.lineTo(l.x-8,l.y-76); g.closePath(); g.fill();
+    g.fillStyle=l.lit?`rgba(255,214,150,${flick})`:'rgba(30,38,58,.9)';
+    g.fillRect(l.x-7,l.y-74,14,20);
+    g.fillStyle='#3A456A';
+    g.beginPath(); g.moveTo(l.x-12,l.y-76); g.lineTo(l.x+12,l.y-76); g.lineTo(l.x,l.y-90); g.closePath(); g.fill();
+    if(l.lit){
+      g.fillStyle=`rgba(255,240,200,${flick})`;
+      g.beginPath(); g.ellipse(l.x,l.y-64,4.5,7,0,0,7); g.fill();
+    }
+    /* prompt */
+    if(!l.lit&&dist(P.x,P.y,l.x,l.y)<52){
+      const on=P.lighting===l;
+      g.textAlign='center'; g.font='600 12px "IBM Plex Mono",monospace';
+      g.fillStyle=on?'#FFD9A0':'rgba(180,200,240,.8)';
+      g.fillText(on?'':'HOLD SPACE',l.x,l.y-104);
+      if(on){
+        const w=52, k=P.litT/42;
+        g.fillStyle='rgba(10,14,26,.8)'; g.fillRect(l.x-w/2-2,l.y-112,w+4,9);
+        g.fillStyle='#FFB65C'; g.fillRect(l.x-w/2,l.y-110,w*k,5);
+      }
+    }
+  });
+}
+
+function drawShades(){
+  shades.forEach(s=>{
+    const a=1-s.fade;
+    g.save(); g.translate(s.x,s.y); g.globalAlpha=a;
+    const wob=Math.sin(s.wob)*3;
+    /* a ragged smudge of night */
+    g.fillStyle='rgba(6,8,16,.92)';
+    g.beginPath();
+    for(let i=0;i<11;i++){
+      const ang=i/11*6.283, rr=s.r+Math.sin(s.wob*1.6+i*1.7)*5+ (i%2?3:0);
+      const px=Math.cos(ang)*rr, py=Math.sin(ang)*rr*1.22-6;
+      i?g.lineTo(px,py):g.moveTo(px,py);
+    }
+    g.closePath(); g.fill();
+    /* trailing wisps */
+    g.fillStyle='rgba(10,13,24,.55)';
+    for(let i=0;i<3;i++){
+      g.beginPath();
+      g.ellipse(Math.sin(s.wob+i)*7, 10+i*5, 11-i*2.5, 5-i, 0,0,7); g.fill();
+    }
+    /* two cold little eyes */
+    g.fillStyle=`rgba(150,190,255,${.75*a})`;
+    g.beginPath(); g.arc(-5+s.eye,-9+wob*.2,2.4,0,7); g.arc(5+s.eye,-9+wob*.2,2.4,0,7); g.fill();
+    g.restore(); g.globalAlpha=1;
+  });
+}
+
+function drawPlayer(){
+  const bob=Math.sin(P.walk)*2, lean=Math.sin(P.walk)*.06;
+  if(P.iframe>0&&Math.floor(tick/4)%2===0&&P.iframe>40) return;
+  g.save(); g.translate(P.x,P.y); g.rotate(lean);
+  g.fillStyle='rgba(0,0,0,.45)'; g.beginPath(); g.ellipse(0,7,13,5,0,0,7); g.fill();
+  g.scale(P.face,1);
+  /* legs */
+  const st=Math.sin(P.walk)*4;
+  g.fillStyle='#2B3149'; g.fillRect(-7,-3,6,12+st*.3); g.fillRect(2,-3,6,12-st*.3);
+  /* coat */
+  g.fillStyle='#3E4668';
+  g.beginPath(); g.moveTo(-10,-24+bob); g.lineTo(10,-24+bob);
+  g.lineTo(9,0); g.lineTo(-9,0); g.closePath(); g.fill();
+  g.fillStyle='#4A5479'; g.fillRect(-10,-24+bob,20,7);
+  /* scarf */
+  g.fillStyle='#B4553F'; g.fillRect(-9,-27+bob,18,5);
+  g.fillRect(4,-27+bob,5,11);
+  /* head + cap */
+  g.fillStyle='#E8C49A'; g.beginPath(); g.arc(0,-34+bob,8,0,7); g.fill();
+  g.fillStyle='#2E3550';
+  g.beginPath(); g.arc(0,-37+bob,9,Math.PI,0); g.fill();
+  g.fillRect(-9,-38+bob,18,3);
+  g.fillRect(4,-38+bob,10,3);
+  /* the pole over the shoulder */
+  g.strokeStyle='#6B5738'; g.lineWidth=3;
+  g.beginPath(); g.moveTo(-6,-18+bob); g.lineTo(16,-46+bob); g.stroke();
+  g.fillStyle='#FFC978'; g.beginPath(); g.arc(17,-47+bob,2.6,0,7); g.fill();
+  /* the lantern in hand, brightness by oil */
+  const oil=P.oil;
+  g.fillStyle='#3A4568'; g.fillRect(-19,-20+bob,10,12);
+  g.fillStyle=`rgba(255,208,140,${.25+oil*.75})`; g.fillRect(-17.5,-18.5+bob,7,9);
+  g.restore();
+}
+
+function drawSparks(){
+  sparks.forEach(s=>{
+    const a=clamp(s.life/30,0,1);
+    g.globalAlpha=a;
+    g.fillStyle=s.cold?'#9CC0FF':(Math.random()<.5?'#FFD9A0':'#FF9E4A');
+    g.fillRect(s.x-1.5,s.y-1.5,3,3);
+  });
+  g.globalAlpha=1;
+}
+
+/* darkness: build a light map and multiply it over the scene */
+function compositeLight(){
+  L.setTransform(1,0,0,1,0,0);
+  const deep = state==='play'? 'rgb(16,20,34)' : 'rgb(26,32,50)';
+  L.fillStyle=deep; L.fillRect(0,0,VW,VH);
+  L.globalCompositeOperation='lighter';
+
+  /* window spill, so the town is never pitch black */
+  buildings.forEach(b=>{
+    b.wins.forEach(w=>{
+      if(!w.lit) return;
+      const wx=b.x+w.x*b.w-cam.x, wy=b.y+w.y*b.h-cam.y;
+      if(wx<-140||wy<-140||wx>VW+140||wy>VH+140) return;
+      const rg=L.createRadialGradient(wx,wy,2,wx,wy,80);
+      rg.addColorStop(0,'rgba(90,70,40,1)'); rg.addColorStop(1,'rgba(0,0,0,0)');
+      L.fillStyle=rg; L.beginPath(); L.arc(wx,wy,80,0,7); L.fill();
+    });
+  });
+
+  /* the lamps you have lit */
+  lamps.forEach(l=>{
+    if(!l.lit) return;
+    const lx=l.x-cam.x, ly=l.y-cam.y;
+    if(lx<-260||ly<-260||lx>VW+260||ly>VH+260) return;
+    const flick=.93+Math.sin(l.flicker)*.05+Math.sin(l.flicker*3.1)*.02;
+    const r=205*l.glow*flick;
+    const rg=L.createRadialGradient(lx,ly-30,6,lx,ly-30,r);
+    rg.addColorStop(0,'rgba(255,220,160,1)');
+    rg.addColorStop(.35,'rgba(210,150,80,.62)');
+    rg.addColorStop(.7,'rgba(120,80,40,.22)');
+    rg.addColorStop(1,'rgba(0,0,0,0)');
+    L.fillStyle=rg; L.beginPath(); L.arc(lx,ly-30,r,0,7); L.fill();
+  });
+
+  /* your own lantern */
+  const px=P.x-cam.x, py=P.y-cam.y;
+  const pr=(66+P.oil*118)*(1+Math.sin(tick*.12)*.012);
+  const pg=L.createRadialGradient(px,py-10,4,px,py-10,pr);
+  pg.addColorStop(0,`rgba(255,225,175,${.55+P.oil*.45})`);
+  pg.addColorStop(.4,`rgba(200,150,90,${.28+P.oil*.3})`);
+  pg.addColorStop(1,'rgba(0,0,0,0)');
+  L.fillStyle=pg; L.beginPath(); L.arc(px,py-10,pr,0,7); L.fill();
+
+  /* sparks throw a little light of their own */
+  sparks.forEach(s=>{
+    const sxp=s.x-cam.x, syp=s.y-cam.y;
+    const rg=L.createRadialGradient(sxp,syp,1,sxp,syp,26);
+    rg.addColorStop(0,'rgba(120,90,50,.9)'); rg.addColorStop(1,'rgba(0,0,0,0)');
+    L.fillStyle=rg; L.beginPath(); L.arc(sxp,syp,26,0,7); L.fill();
+  });
+
+  L.globalCompositeOperation='source-over';
+  g.globalCompositeOperation='multiply';
+  g.drawImage(lm,0,0);
+  g.globalCompositeOperation='source-over';
+}
+
+function drawFogMotes(){
+  g.globalAlpha=.5;
+  motes.forEach(m=>{
+    const mx=m.x-cam.x, my=m.y-cam.y;
+    if(mx<-20||my<-20||mx>VW+20||my>VH+20) return;
+    g.fillStyle=`rgba(150,175,220,${.05+m.z*.09})`;
+    g.beginPath(); g.arc(mx,my,m.z*3.2,0,7); g.fill();
+  });
+  g.globalAlpha=1;
+  /* a cold vignette that tightens when the lantern is low */
+  const v=g.createRadialGradient(VW/2,VH/2,VH*.34,VW/2,VH/2,VH*(.92-(1-P.oil)*.2));
+  v.addColorStop(0,'rgba(0,0,0,0)');
+  v.addColorStop(1,`rgba(4,6,14,${.55+(1-P.oil)*.28})`);
+  g.fillStyle=v; g.fillRect(0,0,VW,VH);
+}
+
+function drawHUD(){
+  if(state!=='play'&&state!=='intro') return;
+  /* the clock, top centre */
+  const k=clamp(clock/clockMax,0,1);
+  const cx=VW/2, cy=64, R=38;
+  g.fillStyle='rgba(8,12,22,.72)'; g.beginPath(); g.arc(cx,cy,R+9,0,7); g.fill();
+  g.strokeStyle=k<.2?'#C8626A':'rgba(140,160,205,.55)'; g.lineWidth=3;
+  g.beginPath(); g.arc(cx,cy,R+9,0,7); g.stroke();
+  g.strokeStyle=k<.2?'#E0707A':'#FFB65C'; g.lineWidth=6; g.lineCap='round';
+  g.beginPath(); g.arc(cx,cy,R+9,-Math.PI/2,-Math.PI/2+6.283*k); g.stroke();
+  /* hands */
+  const mins=(1-k)*12;
+  g.strokeStyle='rgba(230,235,250,.9)'; g.lineWidth=3;
+  g.beginPath(); g.moveTo(cx,cy);
+  g.lineTo(cx+Math.cos(mins*.5236-Math.PI/2)*24, cy+Math.sin(mins*.5236-Math.PI/2)*24); g.stroke();
+  g.lineWidth=2;
+  g.beginPath(); g.moveTo(cx,cy);
+  g.lineTo(cx+Math.cos(mins*6.283-Math.PI/2)*32, cy+Math.sin(mins*6.283-Math.PI/2)*32); g.stroke();
+  g.fillStyle='#FFD9A0'; g.beginPath(); g.arc(cx,cy,3.4,0,7); g.fill();
+  g.textAlign='center'; g.font='600 11px "IBM Plex Mono",monospace';
+  g.fillStyle=k<.2?'#E0707A':'rgba(180,200,240,.75)';
+  g.fillText(Math.ceil(clock/60)+'s TO MIDNIGHT',cx,cy+R+30);
+
+  /* lamps counter, left */
+  const lit=lamps.filter(l=>l.lit).length;
+  g.textAlign='left';
+  g.font='500 11px "IBM Plex Mono",monospace'; g.fillStyle='rgba(150,170,215,.7)';
+  g.fillText('LAMPS',36,44);
+  g.font='700 34px "Cinzel",serif'; g.fillStyle='#FFDCA8';
+  g.fillText(lit+' / '+lamps.length,36,80);
+  /* little lamp pips */
+  lamps.forEach((l,i)=>{
+    g.fillStyle=l.lit?'#FFB65C':'rgba(120,140,180,.28)';
+    g.beginPath(); g.arc(42+i*17,98,5,0,7); g.fill();
+  });
+
+  /* oil, right */
+  g.textAlign='right';
+  g.font='500 11px "IBM Plex Mono",monospace'; g.fillStyle='rgba(150,170,215,.7)';
+  g.fillText('LANTERN',VW-36,44);
+  const bw=170;
+  g.fillStyle='rgba(8,12,22,.75)'; g.fillRect(VW-36-bw,54,bw,16);
+  const og=g.createLinearGradient(VW-36-bw,0,VW-36,0);
+  og.addColorStop(0,'#8A5A2A'); og.addColorStop(1,'#FFD9A0');
+  g.fillStyle=P.oil<.22?'#C8626A':og;
+  g.fillRect(VW-36-bw,54,bw*P.oil,16);
+  g.strokeStyle='rgba(150,170,215,.3)'; g.lineWidth=1; g.strokeRect(VW-36.5-bw,53.5,bw+1,17);
+  /* hearts */
+  for(let i=0;i<3;i++){
+    const hx=VW-46-i*26, hy=94;
+    g.fillStyle=i<P.hearts?'#E0707A':'rgba(120,140,180,.22)';
+    g.beginPath();
+    g.moveTo(hx,hy+5);
+    g.bezierCurveTo(hx-9,hy-3,hx-4,hy-11,hx,hy-5);
+    g.bezierCurveTo(hx+4,hy-11,hx+9,hy-3,hx,hy+5);
+    g.fill();
+  }
+
+  /* message */
+  if(msgT>0&&msg){
+    g.globalAlpha=clamp(msgT/50,0,1);
+    g.textAlign='center'; g.font='700 22px "Cinzel",serif';
+    g.fillStyle='rgba(8,12,22,.7)';
+    const w=g.measureText(msg).width+44;
+    g.fillRect(VW/2-w/2,VH-92,w,40);
+    g.fillStyle='#FFDCA8'; g.fillText(msg,VW/2,VH-64);
+    g.globalAlpha=1;
+  }
+  /* hint on the first night */
+  if(night===1&&tick<600&&state==='play'){
+    g.textAlign='center'; g.font='500 12px "IBM Plex Mono",monospace';
+    g.fillStyle='rgba(150,170,215,.6)';
+    g.fillText('walk to a lamp · hold SPACE to strike it',VW/2,VH-28);
+  }
+}
+
+/* ── loop ────────────────────────────────────────────────────── */
+function frame(){ update(); draw(); requestAnimationFrame(frame); }
+
+document.getElementById('begin').onclick=()=>{ night=1; try{ac().resume();}catch(e){} startNight(); };
+document.getElementById('next').onclick=()=>{ night++; startNight(); };
+document.getElementById('retry').onclick=()=>{ startNight(); };
+addEventListener('keydown',e=>{
+  if(state==='play'||state==='intro') return;
+  if(e.key==='Enter'||e.key===' '){
+    const v=document.querySelector('.veil.on'); const b=v&&v.querySelector('.btn'); if(b) b.click();
+  }
+});
+
+buildTown();            /* something to look at behind the title */
+frame();
+</script>
+</body>
+</html>

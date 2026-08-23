@@ -1,0 +1,862 @@
+<title>Sword of the Filament King</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Chakra+Petch:wght@400;600;700&display=swap">
+
+<style>
+  :root {
+    --void:     #070a16;
+    --deep:     #0e1428;
+    --ice:      #7fe6ff;
+    --regolith: #cbb9a3;
+    --heat:     #ff7a3d;
+    --bone:     #eef2fa;
+    --dim:      #6d7fae;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--void);
+    color: var(--bone);
+    font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 20px;
+    background:
+      radial-gradient(120% 80% at 50% -10%, #17203f 0%, transparent 60%),
+      var(--void);
+  }
+
+  .plate {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(960px, 100%);
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  h1 {
+    font-family: "Bungee", "Chakra Petch", sans-serif;
+    font-size: clamp(18px, 3.4vw, 30px);
+    letter-spacing: 0.04em;
+    color: var(--bone);
+    text-wrap: balance;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--ice);
+  }
+
+  .sub {
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .screen {
+    position: relative;
+    border: 2px solid #26325a;
+    border-radius: 4px;
+    box-shadow: 0 0 0 6px #0b1024, 0 22px 60px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    line-height: 0;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--void);
+    touch-action: none;
+  }
+
+  /* faint CRT rake over the arena */
+  .screen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.035) 0px,
+      rgba(255, 255, 255, 0.035) 1px,
+      transparent 1px,
+      transparent 3px);
+  }
+
+  .keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    font-size: 13px;
+    color: var(--dim);
+  }
+
+  kbd {
+    font-family: "Chakra Petch", monospace;
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--bone);
+    background: #141c36;
+    border: 1px solid #2c3a66;
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 1px 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .screen::after { display: none; }
+  }
+</style>
+
+<div class="plate">
+  <div class="titlebar">
+    <h1>Sword of the <em>Filament King</em></h1>
+    <span class="sub">Pluto · 4.6 light-hours from help</span>
+  </div>
+
+  <div class="screen">
+    <canvas id="game" width="960" height="600" aria-label="Pluto action game"></canvas>
+  </div>
+
+  <div class="keys">
+    <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows — move</span>
+    <span><kbd>Space</kbd> — swing / burn harder</span>
+    <span><kbd>R</kbd> — restart</span>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const W = 960, H = 600;
+  const cv = document.getElementById("game");
+  const ctx = cv.getContext("2d");
+
+  // crisp on hidpi screens without changing the coordinate system
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  ctx.scale(dpr, dpr);
+
+  // --- the numbers the design called for ---------------------------------
+  const FLIGHT_SECONDS   = 10;
+  const ALIENS_TO_KILL   = 12;
+  const SWORD_DMG_ALIEN  = 10;
+  const ALIEN_HEARTS     = 1;
+  const ALIEN_TOUCH_DMG  = 1;
+  const SURFACE_HEARTS   = 100;
+  const BOSS_HEARTS      = 100000;
+  const PLAYER_BOSS_HP   = 100000;
+  const SWORD_DMG_BOSS   = 10000;
+  const FILAMENT_DMG     = 10;
+  // -----------------------------------------------------------------------
+
+  const SWING_TIME = 0.22, SWING_COOLDOWN = 0.34, REACH = 64;
+  const KING_LINES = [
+    ["ALIEN KING", "You cut down my finest warriors, human."],
+    ["ALIEN KING", "So I will not send warriors."],
+    ["ALIEN KING", "SUMMON THE GIANT 3D PRINTER!"]
+  ];
+
+  const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+  const rand  = (a, b) => a + Math.random() * (b - a);
+  const comma = n => n.toLocaleString("en-US");
+
+  const keys = new Set();
+  const held = (...k) => k.some(n => keys.has(n));
+
+  let G;
+
+  function reset() {
+    G = {
+      state: "flight", t: 0, shake: 0, flash: 0,
+      px: W / 2, py: H * 0.72, face: 1,
+      hp: SURFACE_HEARTS, maxhp: SURFACE_HEARTS,
+      swing: 0, cool: 0, hitIds: new Set(),
+      aliens: [], kills: 0, spawn: 0.5,
+      rolls: [], bits: [], pops: [],
+      bossHp: BOSS_HEARTS, gantry: W / 2, bossTimer: 1.2,
+      kingLine: 0, kingTimer: 2.6,
+      stars: Array.from({ length: 150 }, () => ({
+        x: rand(0, W), y: rand(0, H), z: rand(0.35, 1)
+      }))
+    };
+  }
+
+  function pop(x, y, text, color = "#ffe08a", size = 15) {
+    G.pops.push({ x, y, text, color, size, life: 0.85 });
+  }
+
+  function burst(x, y, color, n = 12) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), s = rand(40, 210);
+      G.bits.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40,
+                    life: rand(0.3, 0.7), color, r: rand(1.5, 4) });
+    }
+  }
+
+  // =======================================================================
+  //  input
+  // =======================================================================
+  addEventListener("keydown", e => {
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if ([" ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key))
+      e.preventDefault();
+    keys.add(k);
+    if (k === " " && !e.repeat) trySwing();
+    if (k === "r" && (G.state === "dead" || G.state === "win")) reset();
+  });
+  addEventListener("keyup", e => {
+    keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+  });
+  addEventListener("blur", () => keys.clear());
+
+  const up    = () => held("w", "ArrowUp");
+  const down  = () => held("s", "ArrowDown");
+  const left  = () => held("a", "ArrowLeft");
+  const right = () => held("d", "ArrowRight");
+
+  function trySwing() {
+    if ((G.state === "surface" || G.state === "boss") && G.cool <= 0) {
+      G.swing = SWING_TIME;
+      G.cool = SWING_COOLDOWN;
+      G.hitIds = new Set();
+    }
+  }
+
+  // the swing is an overhead chop: it starts behind you and lands in front,
+  // mirrored by `face`. `base` runs -1.15 -> 1.15 radians off vertical.
+  function swingBase() { return -1.15 + (1 - G.swing / SWING_TIME) * 2.3; }
+
+  function swordTip() {
+    const base = swingBase();
+    return {
+      x: G.px + Math.sin(base) * G.face * REACH,
+      y: G.py - Math.cos(base) * REACH * 0.78
+    };
+  }
+
+  // =======================================================================
+  //  update
+  // =======================================================================
+  function movePlayer(dt, loY = H * 0.42, hiY = H * 0.93) {
+    const vx = (right() ? 1 : 0) - (left() ? 1 : 0);
+    const vy = (down() ? 1 : 0) - (up() ? 1 : 0);
+    if (vx || vy) {
+      const n = Math.hypot(vx, vy), sp = 260 * dt;
+      G.px += vx / n * sp;
+      G.py += vy / n * sp;
+      if (vx) G.face = vx > 0 ? 1 : -1;
+    }
+    G.px = clamp(G.px, 30, W - 30);
+    G.py = clamp(G.py, loY, hiY);
+  }
+
+  function hurt(amount) {
+    G.hp = Math.max(0, G.hp - amount);
+    G.flash = 1;
+    pop(G.px, G.py - 38, "-" + amount, "#ff8f8f", 13);
+    if (G.hp <= 0) { G.state = "dead"; G.t = 0; }
+  }
+
+  function update(dt) {
+    G.t += dt;
+    G.shake = Math.max(0, G.shake - dt * 4);
+    G.flash = Math.max(0, G.flash - dt * 3);
+    G.swing = Math.max(0, G.swing - dt);
+    G.cool  = Math.max(0, G.cool - dt);
+
+    for (const p of G.pops) { p.y -= 46 * dt; p.life -= dt; }
+    G.pops = G.pops.filter(p => p.life > 0);
+
+    for (const b of G.bits) {
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      b.vy += 260 * dt; b.life -= dt;
+    }
+    G.bits = G.bits.filter(b => b.life > 0);
+
+    ({ flight: stepFlight, surface: stepSurface,
+       colosseum: stepColosseum, boss: stepBoss }[G.state] || (() => {}))(dt);
+  }
+
+  // -- act 1: ten seconds to Pluto ----------------------------------------
+  function stepFlight(dt) {
+    const boost = held(" ") ? 2.3 : 1;
+    for (const s of G.stars) {
+      s.y += (150 + 540 * s.z) * dt * boost;
+      if (s.y > H) { s.y -= H; s.x = rand(0, W); }
+    }
+    if (G.t >= FLIGHT_SECONDS) {
+      G.state = "surface"; G.t = 0; G.shake = 1.2;
+    }
+  }
+
+  // -- act 2: the welcome party -------------------------------------------
+  function stepSurface(dt) {
+    movePlayer(dt);
+
+    G.spawn -= dt;
+    const summoned = G.kills + G.aliens.length;
+    if (G.spawn <= 0 && G.aliens.length < 6 && summoned < ALIENS_TO_KILL) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      G.aliens.push({
+        x: W / 2 + side * (W / 2 + 40), y: rand(H * 0.52, H * 0.86),
+        hp: ALIEN_HEARTS, cool: 0, wob: rand(0, 6.3), id: Math.random()
+      });
+      G.spawn = rand(0.55, 1.3);
+    }
+
+    for (const a of G.aliens) {
+      a.wob += dt * 6;
+      const dx = G.px - a.x, dy = G.py - a.y;
+      const d = Math.hypot(dx, dy) || 1;
+      a.x += dx / d * 100 * dt;
+      a.y += dy / d * 66 * dt;
+      a.cool = Math.max(0, a.cool - dt);
+      if (d < 36 && a.cool <= 0) { a.cool = 0.7; hurt(ALIEN_TOUCH_DMG); }
+    }
+
+    if (G.swing > 0) {
+      const tip = swordTip();
+      for (const a of G.aliens) {
+        if (G.hitIds.has(a.id)) continue;
+        if (Math.hypot(a.x - tip.x, a.y - tip.y) < 48) {
+          a.hp -= SWORD_DMG_ALIEN;
+          G.hitIds.add(a.id);
+          pop(a.x, a.y - 26, "-" + SWORD_DMG_ALIEN);
+          burst(a.x, a.y, "#4fd18b", 16);
+          G.shake = 0.4;
+        }
+      }
+    }
+
+    const before = G.aliens.length;
+    G.aliens = G.aliens.filter(a => a.hp > 0);
+    G.kills += before - G.aliens.length;
+
+    if (G.kills >= ALIENS_TO_KILL && G.aliens.length === 0) {
+      G.state = "colosseum"; G.t = 0;
+      G.kingLine = 0; G.kingTimer = 2.6;
+      G.px = W / 2; G.py = H * 0.78;
+    }
+  }
+
+  // -- act 3: the Colosseum -----------------------------------------------
+  function stepColosseum(dt) {
+    movePlayer(dt, H * 0.58, H * 0.9);
+    G.kingTimer -= dt;
+    if (G.kingTimer <= 0) {
+      G.kingLine++;
+      G.kingTimer = 2.6;
+      G.shake = G.kingLine >= 2 ? 0.7 : 0.25;
+      if (G.kingLine >= KING_LINES.length) {
+        G.state = "boss"; G.t = 0; G.shake = 1.6;
+        G.hp = PLAYER_BOSS_HP; G.maxhp = PLAYER_BOSS_HP;
+      }
+    }
+  }
+
+  // -- act 4: 100,000 hearts of extruded malice ---------------------------
+  function stepBoss(dt) {
+    movePlayer(dt, H * 0.45, H * 0.92);
+
+    // the print head tracks you, lazily
+    G.gantry += clamp(G.px - G.gantry, -200 * dt, 200 * dt);
+    G.gantry = clamp(G.gantry, 156, W - 156);
+
+    const rage = 1 - G.bossHp / BOSS_HEARTS;
+    G.bossTimer -= dt;
+    if (G.bossTimer <= 0) {
+      G.bossTimer = Math.max(0.2, 0.8 - rage * 0.5);
+      const shots = 1 + (rage > 0.35 ? 1 : 0) + (rage > 0.7 ? 1 : 0);
+      for (let i = 0; i < shots; i++) {
+        const spread = (i - (shots - 1) / 2) * 0.3;
+        const ang = Math.atan2(G.py - 188, G.px - G.gantry) + spread;
+        G.rolls.push({
+          x: G.gantry, y: 188,
+          vx: Math.cos(ang) * 310, vy: Math.sin(ang) * 310,
+          spin: rand(0, 6.3), life: 7,
+          hue: ["#ff6b6b", "#59d6a0", "#f7d154", "#7aa2ff", "#e28cf5"][i % 5]
+        });
+      }
+    }
+
+    for (const r of G.rolls) {
+      r.x += r.vx * dt;
+      r.y += r.vy * dt;
+      r.vy += 120 * dt;
+      r.spin += dt * 9;
+      r.life -= dt;
+      if (r.y > H - 26) { r.y = H - 26; r.vy *= -0.62; r.vx *= 0.9; }
+    }
+    G.rolls = G.rolls.filter(r => r.life > 0 && r.x > -70 && r.x < W + 70);
+
+    for (let i = G.rolls.length - 1; i >= 0; i--) {
+      const r = G.rolls[i];
+      if (Math.hypot(r.x - G.px, r.y - G.py) < 34) {
+        G.rolls.splice(i, 1);
+        burst(r.x, r.y, r.hue, 8);
+        hurt(FILAMENT_DMG);
+      }
+    }
+
+    if (G.swing > 0) {
+      const tip = swordTip();
+      if (!G.hitIds.has("boss") && tip.y < 300 && tip.x > 118 && tip.x < W - 118) {
+        G.hitIds.add("boss");
+        G.bossHp = Math.max(0, G.bossHp - SWORD_DMG_BOSS);
+        pop(tip.x, tip.y - 12, "-" + comma(SWORD_DMG_BOSS), "#9ef7c2", 24);
+        burst(tip.x, tip.y, "#7fe6ff", 20);
+        G.shake = 1.2;
+        if (G.bossHp <= 0) { G.state = "win"; G.t = 0; G.shake = 2; }
+      }
+      // you can also slap filament out of the air
+      for (let i = G.rolls.length - 1; i >= 0; i--) {
+        const r = G.rolls[i];
+        if (Math.hypot(r.x - tip.x, r.y - tip.y) < 48) {
+          burst(r.x, r.y, r.hue, 10);
+          G.rolls.splice(i, 1);
+          pop(r.x, r.y, "CUT", "#cfd8ff", 12);
+        }
+      }
+    }
+  }
+
+  // =======================================================================
+  //  drawing
+  // =======================================================================
+  const font = (size, weight = 700, fam = '"Chakra Petch", monospace') =>
+    `${weight} ${size}px ${fam}`;
+  const display = size => `${size}px "Bungee", "Chakra Petch", sans-serif`;
+
+  function text(str, x, y, { size = 14, color = "#eef2fa", weight = 700,
+                             align = "center", disp = false } = {}) {
+    ctx.font = disp ? display(size) : font(size, weight);
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = "middle";
+    ctx.fillText(str, x, y);
+  }
+
+  function circle(x, y, r, fill, stroke, lw = 2) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+  }
+
+  function poly(pts, fill, stroke, lw = 2) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+  }
+
+  function rect(x, y, w, h, fill, stroke, lw = 2) {
+    if (fill) { ctx.fillStyle = fill; ctx.fillRect(x, y, w, h); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw;
+                  ctx.strokeRect(x, y, w, h); }
+  }
+
+  function draw() {
+    ctx.save();
+    ctx.clearRect(0, 0, W, H);
+    ctx.translate(rand(-1, 1) * G.shake * 9, rand(-1, 1) * G.shake * 9);
+
+    ({ flight: drawFlight, surface: drawSurface, colosseum: drawColosseum,
+       boss: drawBoss, win: drawWin, dead: drawDead }[G.state])();
+
+    for (const b of G.bits) {
+      ctx.globalAlpha = clamp(b.life * 2, 0, 1);
+      circle(b.x, b.y, b.r, b.color);
+    }
+    ctx.globalAlpha = 1;
+
+    for (const p of G.pops) {
+      ctx.globalAlpha = clamp(p.life * 1.6, 0, 1);
+      text(p.text, p.x, p.y, { size: p.size, color: p.color });
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    if (G.flash > 0) {
+      ctx.fillStyle = `rgba(150, 20, 40, ${G.flash * 0.28})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  // -- act 1 ---------------------------------------------------------------
+  function drawFlight() {
+    rect(-20, -20, W + 40, H + 40, "#05070f");
+    const boost = held(" ");
+    for (const s of G.stars) {
+      const len = (7 + 30 * s.z) * (boost ? 2.1 : 1);
+      ctx.strokeStyle = s.z > 0.7 ? "#9fb4e8" : "#39456b";
+      ctx.lineWidth = s.z > 0.7 ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(s.x, s.y + len);
+      ctx.stroke();
+    }
+
+    // Pluto swelling up from below
+    const prog = G.t / FLIGHT_SECONDS;
+    const rad = 70 + Math.pow(prog, 2.4) * 940;
+    const cy = H + 250 - Math.pow(prog, 2) * 280;
+    circle(W / 2, cy, rad, "#c9b6a2", "#e8ddcf", 3);
+    const craters = [[-0.42, -0.32, 0.25], [0.36, -0.44, 0.17],
+                     [0.04, -0.14, 0.32], [-0.16, -0.58, 0.12]];
+    craters.forEach((c, i) => {
+      circle(W / 2 + c[0] * rad, cy + c[1] * rad, rad * c[2],
+             i % 2 ? "#9b8874" : "#b3a08c");
+    });
+    // the heart, because it is Pluto
+    ctx.globalAlpha = 0.22;
+    circle(W / 2 + 0.1 * rad, cy - 0.2 * rad, rad * 0.28, "#f3e7d8");
+    ctx.globalAlpha = 1;
+
+    // the rocket
+    const rx = W / 2, ry = H * 0.4 + Math.sin(G.t * 3) * 9;
+    const flame = (30 + rand(0, 24)) * (boost ? 2.2 : 1);
+    poly([[rx, ry + 48 + flame], [rx - 14, ry + 32], [rx + 14, ry + 32]], "#ff7a3d");
+    poly([[rx, ry + 34 + flame * 0.55], [rx - 8, ry + 32], [rx + 8, ry + 32]], "#ffe27a");
+    poly([[rx - 20, ry + 8], [rx - 42, ry + 42], [rx - 20, ry + 32]], "#d9534f");
+    poly([[rx + 20, ry + 8], [rx + 42, ry + 42], [rx + 20, ry + 32]], "#d9534f");
+    poly([[rx, ry - 54], [rx - 20, ry + 4], [rx - 20, ry + 32],
+          [rx + 20, ry + 32], [rx + 20, ry + 4]], "#eef2fa", "#9fb0cf", 2);
+    circle(rx, ry - 12, 11, "#7fd7ff", "#3b6f8c", 2);
+
+    text("PLUTO APPROACH", W / 2, 48, { size: 26, color: "#dfe9ff", disp: true });
+    text(`T-MINUS ${Math.max(0, FLIGHT_SECONDS - G.t).toFixed(1)}s`,
+         W / 2, 86, { size: 20, color: "#7fe6ff" });
+    text("hold SPACE to burn harder", W / 2, H - 26,
+         { size: 13, color: "#5b6789", weight: 400 });
+  }
+
+  // -- act 2 ---------------------------------------------------------------
+  let regolithSeed = null;
+  function drawSurface() {
+    rect(-20, -20, W + 40, H * 0.42 + 20, "#0a0c1c");
+    for (const s of G.stars) {
+      if (s.z > 0.6) circle(s.x, (s.y * 0.4) % (H * 0.4), 1.4, "#8fa4d8");
+    }
+    poly([[-20, H * 0.42], [160, H * 0.29], [330, H * 0.4], [520, H * 0.25],
+          [700, H * 0.38], [880, H * 0.3], [W + 20, H * 0.42],
+          [W + 20, H + 20], [-20, H + 20]], "#2b2434");
+    rect(-20, H * 0.46, W + 40, H, "#cbbaa6");
+
+    if (!regolithSeed) {
+      regolithSeed = Array.from({ length: 26 }, () => ({
+        x: rand(0, W), y: rand(H * 0.48, H), r: rand(7, 26)
+      }));
+    }
+    for (const k of regolithSeed) {
+      ctx.beginPath();
+      ctx.ellipse(k.x, k.y, k.r, k.r * 0.4, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#b6a390"; ctx.fill();
+      ctx.strokeStyle = "#a1907e"; ctx.lineWidth = 1; ctx.stroke();
+    }
+
+    for (const a of G.aliens) drawAlien(a);
+    drawAstronaut();
+    hud(`ALIENS SLAIN  ${G.kills}/${ALIENS_TO_KILL}`);
+    if (G.t < 2.6) {
+      ctx.globalAlpha = clamp(2.6 - G.t, 0, 1);
+      text("TOUCHDOWN — SUIT SEALED", W / 2, 130,
+           { size: 22, color: "#dfe9ff", disp: true });
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawAlien(a) {
+    const x = a.x, y = a.y + Math.sin(a.wob) * 4;
+    ctx.globalAlpha = 0.25;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 22, 22, 6, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#4a3f33"; ctx.fill();
+    ctx.globalAlpha = 1;
+
+    for (const s of [-1, 1]) {
+      ctx.strokeStyle = "#2d8f5c"; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x + s * 8, y - 18);
+      ctx.lineTo(x + s * 17, y - 36);
+      ctx.stroke();
+      circle(x + s * 17, y - 40, 5, "#ff6b9d");
+    }
+    circle(x, y - 2, 20, "#4fd18b", "#2d8f5c", 2);
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(x + s * 9, y - 6, 6, 8, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#0b1420"; ctx.fill();
+      circle(x + s * 9 + 2, y - 9, 2, "#eaf6ff");
+    }
+  }
+
+  function drawAstronaut() {
+    const x = G.px, y = G.py, f = G.face;
+    ctx.globalAlpha = 0.25;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 28, 20, 6, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#3a3128"; ctx.fill();
+    ctx.globalAlpha = 1;
+
+    rect(x - f * 22, y - 8, f * 8, 22, "#d7dfee", "#9fb0cf", 1);  // life support
+    rect(x - 17, y - 12, 34, 36, "#eef2fa", "#9fb0cf", 2);
+    rect(x - 8, y + 2, 16, 7, "#ff7a3d");
+    circle(x, y - 24, 16, "#f4f7ff", "#9fb0cf", 2);
+    ctx.beginPath();
+    ctx.arc(x, y - 24, 11, Math.PI, 0);
+    ctx.fillStyle = "#22496b"; ctx.fill();
+    ctx.strokeStyle = "#7fe6ff"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = "#bfe8ff"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y - 30); ctx.lineTo(x + 2, y - 32);
+    ctx.stroke();
+
+    if (G.swing > 0) {
+      const base = swingBase();
+      const tip = swordTip();
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#dff3ff"; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(x + 6 * f, y); ctx.lineTo(tip.x, tip.y);
+      ctx.stroke();
+      ctx.strokeStyle = "#7fe6ff"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x + 6 * f, y); ctx.lineTo(tip.x, tip.y);
+      ctx.stroke();
+
+      // arc trail covering the part of the swing already travelled
+      const canvasAng = b => Math.atan2(-Math.cos(b) * 0.78, Math.sin(b) * f);
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = "#9fe8ff"; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, REACH * 0.82, canvasAng(-1.15), canvasAng(base), f < 0);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.lineCap = "butt";
+    } else {
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#cfe0ff"; ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(x + 9 * f, y + 12); ctx.lineTo(x + 15 * f, y - 26);
+      ctx.stroke();
+      ctx.lineCap = "butt";
+    }
+  }
+
+  // -- act 3 ---------------------------------------------------------------
+  function drawArena() {
+    rect(-20, -20, W + 40, H + 40, "#171129");
+    for (let i = 0; i < 9; i++) {
+      const y = 26 + i * 9;
+      rect(-20, y, W + 40, 7, "#241a3d");
+      for (let x = 20; x < W; x += 34) {
+        if ((x + i) % 3) circle(x + 4, y + 1, 4,
+                                (x + i) % 2 ? "#3c8f6a" : "#6b4f8f");
+      }
+    }
+    rect(-20, H * 0.4, W + 40, H, "#c2b49f");
+    ctx.beginPath();
+    ctx.ellipse(W / 2, H + 120, W / 2 + 200, H * 0.62, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#cdbfa9"; ctx.fill();
+    ctx.strokeStyle = "#8f8271"; ctx.lineWidth = 4; ctx.stroke();
+    ctx.strokeStyle = "#b9ab96"; ctx.lineWidth = 1;
+    for (let i = 1; i < 7; i++) {
+      ctx.beginPath();
+      ctx.moveTo(0, H * 0.4 + i * 36);
+      ctx.lineTo(W, H * 0.4 + i * 36);
+      ctx.stroke();
+    }
+  }
+
+  function drawColosseum() {
+    drawArena();
+    const kx = W / 2, ky = 122;
+    rect(kx - 112, ky + 34, 224, 20, "#4a3b58", "#6d5a80", 2);
+    circle(kx, ky, 36, "#5fe0a4", "#2d8f5c", 3);
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(kx + s * 15, ky - 4, 9, 11, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#0b1420"; ctx.fill();
+      circle(kx + s * 15, ky - 7, 3, "#ff4d4d");
+    }
+    poly([[kx - 32, ky - 30], [kx - 24, ky - 60], [kx - 9, ky - 38],
+          [kx, ky - 66], [kx + 9, ky - 38], [kx + 24, ky - 60],
+          [kx + 32, ky - 30]], "#f7d154", "#b9942a", 2);
+    drawAstronaut();
+
+    const [who, line] = KING_LINES[Math.min(G.kingLine, KING_LINES.length - 1)];
+    rect(60, H - 112, W - 120, 70, "#0d1226", "#3d4a78", 2);
+    text(who, 82, H - 92, { size: 12, color: "#7fe6ff", align: "left" });
+    text(line, 82, H - 68, { size: 17, color: "#e6ecff", align: "left" });
+    if (G.kingLine >= 2) {
+      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(G.t * 12);
+      text("!!!", W / 2, 222, { size: 42, color: "#ff6b6b", disp: true });
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // -- act 4 ---------------------------------------------------------------
+  function drawBoss() {
+    drawArena();
+    drawPrinter();
+    for (const r of G.rolls) drawRoll(r);
+    drawAstronaut();
+    bossHud();
+  }
+
+  function drawPrinter() {
+    rect(110, 56, W - 220, 244, "#1c2338", "#4d5f8f", 4);
+    rect(122, 64, 18, 228, "#33405f", "#6d82b8", 2);
+    rect(W - 140, 64, 18, 228, "#33405f", "#6d82b8", 2);
+
+    // heated bed
+    rect(150, 250, W - 300, 38, "#3a2230", "#c0563d", 3);
+    ctx.strokeStyle = "#8f3a2a"; ctx.lineWidth = 1;
+    for (let i = 0; i < 10; i++) {
+      const x = 162 + i * (W - 324) / 9;
+      ctx.beginPath(); ctx.moveTo(x, 255); ctx.lineTo(x, 283); ctx.stroke();
+    }
+
+    // gantry rail + print head
+    const gy = 150, gx = G.gantry;
+    ctx.strokeStyle = "#6d82b8"; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(130, gy); ctx.lineTo(W - 130, gy); ctx.stroke();
+    rect(gx - 36, gy - 28, 72, 46, "#2b3550", "#8fa4d8", 3);
+    poly([[gx - 13, gy + 18], [gx + 13, gy + 18], [gx + 6, gy + 38],
+          [gx - 6, gy + 38]], "#c9a227", "#f7d154", 2);
+    const glow = 0.5 + 0.5 * Math.sin(G.t * 10);
+    circle(gx, gy + 41, 6, glow > 0.5 ? "#ff7a3d" : "#ffb03d");
+    ctx.globalAlpha = 0.25 * glow;
+    circle(gx, gy + 41, 16, "#ff7a3d");
+    ctx.globalAlpha = 1;
+
+    // the spool, always turning
+    const sx = 205, sy = 100;
+    circle(sx, sy, 34, "#7aa2ff", "#c9d8ff", 3);
+    ctx.strokeStyle = "#dbe6ff"; ctx.lineWidth = 2;
+    for (let k = 0; k < 4; k++) {
+      const a = G.t * 4 + k * 1.5708;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + Math.cos(a) * 30, sy + Math.sin(a) * 30);
+      ctx.stroke();
+    }
+    circle(sx, sy, 9, "#0f1526");
+
+    // status screen
+    rect(W - 306, 84, 146, 50, "#08131b", "#3fbf9f", 2);
+    text("PRINTING", W - 233, 100, { size: 12, color: "#4fe3b0" });
+    text("your_doom.gcode", W - 233, 118, { size: 12, color: "#9ef7c2",
+                                            weight: 400 });
+  }
+
+  function drawRoll(r) {
+    circle(r.x, r.y, 17, r.hue, "#12182b", 2);
+    circle(r.x, r.y, 6, "#0f1526");
+    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) {
+      const a = r.spin + k * 2.094;
+      ctx.beginPath();
+      ctx.moveTo(r.x + Math.cos(a) * 7, r.y + Math.sin(a) * 7);
+      ctx.lineTo(r.x + Math.cos(a) * 16, r.y + Math.sin(a) * 16);
+      ctx.stroke();
+    }
+  }
+
+  // -- HUD -----------------------------------------------------------------
+  function hud(rightText) {
+    rect(20, 16, 300, 28, "#0d1226", "#3d4a78", 2);
+    const frac = G.maxhp ? G.hp / G.maxhp : 0;
+    rect(23, 19, 294 * frac, 22, "#ff5f7e");
+    text(`HEARTS  ${comma(G.hp)} / ${comma(G.maxhp)}`, 170, 31,
+         { size: 13, color: "#ffffff" });
+    if (rightText) text(rightText, W - 24, 31,
+                        { size: 15, color: "#dfe9ff", align: "right" });
+  }
+
+  function bossHud() {
+    hud();
+    rect(20, 52, W - 40, 28, "#0d1226", "#3d4a78", 2);
+    const frac = G.bossHp / BOSS_HEARTS;
+    rect(23, 55, (W - 46) * frac, 22, "#f7d154");
+    text(`GIANT 3D PRINTER   ${comma(G.bossHp)} / ${comma(BOSS_HEARTS)}`,
+         W / 2, 66, { size: 14, color: frac > 0.52 ? "#20180a" : "#e6ecff" });
+    const hits = Math.ceil(G.bossHp / SWORD_DMG_BOSS);
+    text(`get under the frame and SWING  —  ${hits} hits left`,
+         W / 2, H - 20, { size: 13, color: "#8f9dc4", weight: 400 });
+  }
+
+  // -- endings -------------------------------------------------------------
+  let wreckage = null;
+  function drawWin() {
+    drawArena();
+    ctx.fillStyle = "rgba(8, 26, 18, 0.55)";
+    ctx.fillRect(-20, -20, W + 40, H + 40);
+    if (!wreckage) {
+      wreckage = Array.from({ length: 15 }, () => ({
+        x: rand(150, W - 200), y: rand(200, 300),
+        w: rand(20, 62), h: rand(10, 26), a: rand(-0.4, 0.4)
+      }));
+    }
+    for (const p of wreckage) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.a);
+      rect(0, 0, p.w, p.h, "#2b3550", "#4d5f8f", 2);
+      ctx.restore();
+    }
+    drawAstronaut();
+    text("THE PRINTER IS SCRAP", W / 2, 132,
+         { size: 34, color: "#9ef7c2", disp: true });
+    text("100,000 hearts. Ten swings. One very cold moon.", W / 2, 180,
+         { size: 16, color: "#dfe9ff", weight: 400 });
+    text("press R to do it all again", W / 2, H - 44,
+         { size: 13, color: "#6d7fae", weight: 400 });
+  }
+
+  function drawDead() {
+    rect(-20, -20, W + 40, H + 40, "#1a0a10");
+    text("YOUR SUIT IS FULL OF FILAMENT", W / 2, H / 2 - 26,
+         { size: 28, color: "#ff8f8f", disp: true });
+    text("press R to try again", W / 2, H / 2 + 26,
+         { size: 16, color: "#9c7482", weight: 400 });
+  }
+
+  // =======================================================================
+  //  loop
+  // =======================================================================
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  reset();
+  const start = () => { last = performance.now(); requestAnimationFrame(frame); };
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(start);
+  else start();
+})();
+</script>

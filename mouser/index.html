@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mouser</title>
+<meta name="description" content="You are the cat. There are mice. There is food on the counter. There are also humans, and they will not stop touching you.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --wall:#E8D9C0; --wall2:#DCC9AB; --wood:#9A6B42; --wood2:#7A5232;
+  --ink:#3A2A20; --soft:#7A6152; --cream:#FFF4E2;
+  --ginger:#F0973A; --ginger2:#D97622; --sage:#6E8C6A; --teal:#3E7A78;
+  --rose:#D9606A;
+  --display:"Baloo 2",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:#2A2018;color:var(--cream);font-family:var(--mono);
+  display:grid;place-items:center;overflow:hidden;
+  background-image:radial-gradient(60vw 40vh at 50% 0%,#3E2F24,transparent 70%);
+}
+#wrap{position:relative;width:min(100vw,calc(100vh*16/9));aspect-ratio:16/9;max-height:100vh}
+canvas{width:100%;height:100%;display:block;background:#E8D9C0}
+.card{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:22px;
+  background:radial-gradient(70% 70% at 50% 45%,rgba(42,32,24,.9),rgba(26,19,14,.96))}
+.card.on{display:grid}
+.card h1{font-family:var(--display);font-weight:800;font-size:clamp(42px,8vw,90px);line-height:.9;margin:0;
+  color:var(--ginger);text-shadow:0 4px 0 #A9541A}
+.card h2{font-family:var(--display);font-weight:800;font-size:clamp(26px,5vw,48px);margin:0;color:var(--cream)}
+.card p{max-width:54ch;margin:12px auto 0;color:#C9B79E;line-height:1.6;font-size:13px}
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:7px;margin:20px auto 0;max-width:620px;text-align:left}
+.k{display:flex;align-items:center;gap:9px;background:rgba(58,42,32,.8);border:1px solid #5A4534;
+  border-radius:9px;padding:8px 10px;font-size:11.5px;color:#C9B79E}
+.k b{font-family:var(--display);font-weight:800;font-size:16px;color:#2A2018;background:var(--cream);
+  border-radius:5px;min-width:26px;height:26px;display:grid;place-items:center;padding:0 7px}
+.btn{margin-top:22px;font-family:var(--display);font-weight:800;font-size:24px;letter-spacing:.04em;
+  color:#3A2010;background:linear-gradient(180deg,#FFC46A,var(--ginger));
+  border:0;border-radius:12px;padding:12px 40px;cursor:pointer;box-shadow:0 5px 0 #A9541A}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 #A9541A}
+.btn:focus-visible{outline:3px solid var(--cream);outline-offset:3px}
+.stat{display:flex;gap:26px;justify-content:center;margin-top:18px;flex-wrap:wrap}
+.stat div{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#9C8770}
+.stat b{display:block;font-family:var(--display);font-weight:800;font-size:30px;color:var(--cream);margin-top:2px}
+#snd{position:absolute;right:12px;bottom:10px;background:none;border:0;color:#8C7660;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;cursor:pointer}
+#snd:hover{color:var(--ginger)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="1280" height="720"></canvas>
+
+  <div class="card on" id="c-title">
+    <div>
+      <h1>MOUSER</h1>
+      <p>You are the cat. There are mice in this house and they are slow and stupid and they do not
+         run from you. There is also food on the counter, and every two minutes a <b>human</b> comes
+         in and touches you whether you like it or not.</p>
+      <div class="keys">
+        <div class="k"><b>L</b> look left</div>
+        <div class="k"><b>R</b> look right</div>
+        <div class="k"><b>W</b> walk</div>
+        <div class="k"><b>B</b> backwards</div>
+        <div class="k"><b>J</b> jump</div>
+        <div class="k"><b>Y</b> sneak (hold)</div>
+        <div class="k"><b>S</b> scratch</div>
+        <div class="k"><b>M</b> sound</div>
+      </div>
+      <p style="margin-top:14px">Catch every mouse. Sneak first — a stalking cat never misses.<br>
+         Eat off the counter <b>only</b> when nobody is in the room.</p>
+      <button class="btn" id="begin">LET ME OUT</button>
+    </div>
+  </div>
+
+  <div class="card" id="c-round">
+    <div>
+      <h2 id="roundno">NIGHT 1</h2>
+      <p class="sub" id="roundsub" style="letter-spacing:.14em;text-transform:uppercase;color:#9C8770;font-size:11px">four mice</p>
+    </div>
+  </div>
+
+  <div class="card" id="c-win">
+    <div>
+      <h1 style="font-size:clamp(34px,6vw,64px)">GOOD CAT</h1>
+      <p id="wintext">Every mouse accounted for. Nobody saw a thing.</p>
+      <div class="stat">
+        <div>MICE<b id="w-mice">0</b></div>
+        <div>SNACKS<b id="w-food">0</b></div>
+        <div>PETS ENDURED<b id="w-pets">0</b></div>
+      </div>
+      <button class="btn" id="next">NEXT NIGHT</button>
+    </div>
+  </div>
+
+  <div class="card" id="c-lose">
+    <div>
+      <h1 style="font-size:clamp(34px,6vw,64px);color:#D9606A">BAD CAT</h1>
+      <p id="losetext">You got caught on the counter one time too many.</p>
+      <div class="stat">
+        <div>MICE<b id="l-mice">0</b></div>
+        <div>NIGHT<b id="l-night">1</b></div>
+        <div>BEST<b id="l-best">1</b></div>
+      </div>
+      <button class="btn" id="retry">TRY AGAIN</button>
+    </div>
+  </div>
+
+  <button id="snd">♪ SOUND ON</button>
+</div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════
+   MOUSER — you are the cat
+   ══════════════════════════════════════════════════════════════ */
+const cv=document.getElementById('c'), g=cv.getContext('2d');
+const W=1280, H=720, FLOOR=596;
+const rnd=(a,b)=>Math.random()*(b-a)+a;
+const ri=(a,b)=>Math.floor(rnd(a,b+1));
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+
+/* ── sound ─────────────────────────────────────────────────── */
+let AC=null, muted=false;
+const ac=()=>AC||(AC=new (window.AudioContext||window.webkitAudioContext)());
+function tone(f,d=.12,type='sine',v=.1,delay=0,f2){
+  if(muted) return;
+  try{
+    const c=ac(),s=c.currentTime+delay,o=c.createOscillator(),gn=c.createGain();
+    o.type=type;o.frequency.setValueAtTime(f,s);
+    if(f2)o.frequency.exponentialRampToValueAtTime(f2,s+d);
+    gn.gain.setValueAtTime(0,s);gn.gain.linearRampToValueAtTime(v,s+.012);
+    gn.gain.exponentialRampToValueAtTime(.0001,s+d);
+    o.connect(gn).connect(c.destination);o.start(s);o.stop(s+d+.02);
+  }catch(e){}
+}
+function noise(d=.2,v=.1,delay=0,cut=1200){
+  if(muted) return;
+  try{
+    const c=ac(),s=c.currentTime+delay,n=Math.max(1,c.sampleRate*d);
+    const b=c.createBuffer(1,n,c.sampleRate),ch=b.getChannelData(0);
+    for(let i=0;i<n;i++) ch[i]=(Math.random()*2-1)*(1-i/n);
+    const src=c.createBufferSource(),gn=c.createGain(),f=c.createBiquadFilter();
+    f.type='lowpass'; f.frequency.value=cut; gn.gain.value=v;
+    src.buffer=b; src.connect(f).connect(gn).connect(c.destination); src.start(s);
+  }catch(e){}
+}
+const SFX={
+  step:()=>noise(.04,.02,0,300),
+  jump:()=>tone(400,.12,'sine',.07,0,700),
+  land:()=>noise(.07,.06,0,320),
+  scratch:()=>{ noise(.16,.13,0,2600); tone(300,.1,'sawtooth',.05,0,140); },
+  catch:()=>{ [660,880,1046].forEach((f,i)=>tone(f,.22,'triangle',.1,i*.06)); noise(.1,.06,0,1800); },
+  miss:()=>tone(180,.16,'square',.07,0,120),
+  squeak:()=>{ tone(1500,.07,'square',.05,0,2200); tone(1800,.06,'square',.04,.07,2400); },
+  purr:()=>{ for(let i=0;i<7;i++) tone(58+((i%2)*4),.14,'sawtooth',.05,i*.13); },
+  eat:()=>{ noise(.09,.07,0,700); noise(.09,.06,.12,600); tone(520,.16,'sine',.06,.22,700); },
+  door:()=>{ noise(.3,.1,0,260); tone(120,.28,'sine',.07,0,70); },
+  shoo:()=>{ tone(700,.16,'square',.09,0,300); tone(500,.2,'square',.08,.15,180); noise(.2,.08,0,900); },
+  meow:()=>{ tone(620,.2,'sawtooth',.08,0,900); tone(900,.24,'sawtooth',.07,.16,520); },
+  win:()=>[523,659,784,1046].forEach((f,i)=>tone(f,.5,'triangle',.1,i*.11)),
+  lose:()=>[392,330,262,196].forEach((f,i)=>tone(f,.5,'sine',.09,i*.16))
+};
+
+/* ── input ─────────────────────────────────────────────────── */
+const key={};
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if([' ','arrowleft','arrowright','arrowup','arrowdown'].includes(k)) e.preventDefault();
+  if(!key[k]) tap(k);
+  key[k]=true;
+  try{ac().resume();}catch(err){}
+});
+addEventListener('keyup',e=>key[e.key.toLowerCase()]=false);
+function toggleSnd(){ muted=!muted; document.getElementById('snd').textContent=muted?'♪ SOUND OFF':'♪ SOUND ON'; }
+document.getElementById('snd').onclick=toggleSnd;
+
+/* ── the house ─────────────────────────────────────────────── */
+/* things you can stand on */
+const SURFACES=[
+  {x:0,   y:FLOOR, w:W,   name:'floor'},
+  {x:118, y:452,   w:236, name:'sofa'},          /* sofa back cushions */
+  {x:520, y:498,   w:200, name:'table'},         /* coffee table */
+  {x:880, y:448,   w:330, name:'counter'}        /* kitchen counter — the food is here */
+];
+const HOLES=[{x:64,y:FLOOR},{x:1216,y:FLOOR}];
+const DOOR={x:1152,y:FLOOR};
+const PLATE={x:1010,y:448};
+
+const P={x:300,y:FLOOR,vy:0,face:1,onGround:true,surf:SURFACES[0],
+         sneak:false,walkT:0,scratch:0,scratchHit:false,wiggle:0,step:0,
+         held:0,tail:0,blink:0,eatT:0};
+
+let mice=[], humans=[], hearts=[], puffs=[], crumbs=[];
+let night=1, best=1, state='title', tick=0;
+let caught=0, need=4, food=0, pets=0, strikes=0, maxStrikes=3;
+let humanTimer=0, humanEvery=7200, msg='', msgT=0, shake=0;
+
+function plan(n){
+  return {
+    mice: Math.min(9, 3+n),
+    speed: .28+n*.04,
+    every: Math.max(2400, 7200-(n-1)*700),   /* how often a human wanders in */
+    stay: 300+Math.min(240,n*30)
+  };
+}
+
+function startRound(){
+  const p=plan(night);
+  need=p.mice; caught=0; food=0; pets=0; strikes=0;
+  mice=[]; humans=[]; hearts=[]; puffs=[]; crumbs=[];
+  P.x=300; P.y=FLOOR; P.vy=0; P.onGround=true; P.surf=SURFACES[0];
+  P.sneak=false; P.scratch=0; P.held=0; P.eatT=0;
+  humanEvery=p.every; humanTimer=p.every;
+  for(let i=0;i<Math.min(3,need);i++) spawnMouse(i*90);
+  state='intro';
+  document.getElementById('roundno').textContent='NIGHT '+night;
+  document.getElementById('roundsub').textContent=
+    need+' mice · a human every '+Math.round(p.every/60)+' seconds';
+  card('c-round');
+  setTimeout(()=>{ card(null); state='play'; SFX.meow(); },1400);
+}
+function card(id){
+  document.querySelectorAll('.card').forEach(c=>c.classList.remove('on'));
+  if(id) document.getElementById(id).classList.add('on');
+}
+function say(s,d=140){ msg=s; msgT=d; }
+
+function spawnMouse(delay=0){
+  const h=HOLES[ri(0,HOLES.length-1)];
+  const goal=SURFACES[2];                              /* the coffee table */
+  mice.push({x:h.x, y:FLOOR, dir:h.x<W/2?1:-1, wait:delay, at:false,
+             wob:rnd(0,6.28), speed:plan(night).speed*rnd(.85,1.2),
+             target:goal.x+rnd(20,goal.w-20), hidden:false, out:0});
+}
+
+/* ── taps ──────────────────────────────────────────────────── */
+function tap(k){
+  if(k==='m'){ toggleSnd(); return; }
+  if(state!=='play') return;
+  if(k==='l') P.face=-1;
+  if(k==='r') P.face=1;
+  if(k==='j') jump();
+  if(k==='s') scratch();
+}
+function jump(){
+  if(!P.onGround) return;
+  P.vy=-15.8; P.onGround=false; SFX.jump();
+  for(let i=0;i<7;i++) puffs.push({x:P.x+rnd(-10,10),y:P.y,vx:rnd(-1,1),vy:rnd(-.6,0),life:rnd(12,22)});
+}
+function scratch(){
+  if(P.scratch>0) return;
+  P.scratch=20; P.scratchHit=false; SFX.scratch();
+  /* eating off the counter */
+  if(P.surf.name==='counter'&&Math.abs(P.x-PLATE.x)<70){
+    if(humans.length){ shoo('THEY SAW YOU'); return; }
+    food++; P.eatT=40; SFX.eat(); say('SNACK');
+    for(let i=0;i<10;i++) crumbs.push({x:PLATE.x+rnd(-18,18),y:PLATE.y-8,vx:rnd(-1.6,1.6),vy:rnd(-2.4,-.4),life:rnd(20,40)});
+    return;
+  }
+}
+
+/* ── update ────────────────────────────────────────────────── */
+function update(){
+  tick++;
+  if(msgT>0) msgT--;
+  if(shake>.3) shake*=.88; else shake=0;
+  P.tail+=.06;
+  if(--P.blink<=0) P.blink=ri(90,260);
+  if(P.eatT>0) P.eatT--;
+  if(state!=='play') return;
+
+  /* ── the cat ── */
+  P.sneak=!!key['y'];
+  const spd=P.sneak?1.5:3.6;
+  let moving=false;
+  if(key['w']){ P.x+=P.face*spd; moving=true; }
+  if(key['b']){ P.x-=P.face*spd*.75; moving=true; }
+  if(key['arrowleft']){ P.face=-1; P.x-=spd; moving=true; }
+  if(key['arrowright']){ P.face=1; P.x+=spd; moving=true; }
+  P.x=clamp(P.x,30,W-30);
+  if(moving){ P.walkT+=P.sneak?.14:.3; if(++P.step%(P.sneak?34:16)===0) SFX.step(); }
+  else P.walkT*=.85;
+  if(P.sneak) P.wiggle+=.24; else P.wiggle=0;
+
+  /* gravity + landing on things */
+  P.vy+=.72; P.y+=P.vy;
+  P.onGround=false;
+  let best2=null;
+  SURFACES.forEach(s=>{
+    if(P.x>s.x-16&&P.x<s.x+s.w+16){
+      if(P.y>=s.y-2&&P.y-P.vy<=s.y+14&&P.vy>=0){
+        if(!best2||s.y<best2.y) best2=s;
+      }
+    }
+  });
+  if(best2){
+    if(P.vy>4) { SFX.land(); for(let i=0;i<6;i++) puffs.push({x:P.x+rnd(-12,12),y:best2.y,vx:rnd(-1.2,1.2),vy:rnd(-.7,0),life:rnd(10,20)}); }
+    P.y=best2.y; P.vy=0; P.onGround=true; P.surf=best2;
+  }
+  if(P.y>FLOOR){ P.y=FLOOR; P.vy=0; P.onGround=true; P.surf=SURFACES[0]; }
+
+  if(P.scratch>0){
+    P.scratch--;
+    if(!P.scratchHit&&P.scratch<14&&P.scratch>5) tryCatch();
+  }
+
+  /* ── mice ── */
+  mice.forEach(m=>{
+    if(m.wait>0){ m.wait--; return; }
+    if(m.out<1) m.out=Math.min(1,m.out+.02);
+    if(m.hidden){ return; }
+    m.wob+=.12;
+    if(!m.at){
+      const d=m.target-m.x;
+      m.dir=d>0?1:-1;
+      m.x+=m.dir*m.speed;
+      if(Math.abs(d)<6){ m.at=true; say('A MOUSE IS AT THE TABLE — SNEAK UP ON IT'); SFX.squeak(); }
+    } else {
+      /* pottering about under the table */
+      m.x+=Math.sin(m.wob*.3)*.35;
+      if(tick%150===0&&Math.random()<.4) SFX.squeak();
+    }
+  });
+
+  /* ── humans ── */
+  humanTimer--;
+  if(humanTimer<=0&&humans.length===0){
+    humanTimer=humanEvery;
+    humans.push({x:DOOR.x+60,y:FLOOR,dir:-1,state:'in',t:0,stay:plan(night).stay,petT:0});
+    SFX.door(); say('SOMEONE IS COMING IN');
+    mice.forEach(m=>{ if(Math.random()<.7) m.hidden=true; });
+  }
+  humans.forEach(h=>{
+    h.t++;
+    if(h.state==='in'){
+      const goal = (P.surf.name==='counter') ? PLATE.x+70 : P.x+ (P.x<h.x?60:-60);
+      h.dir = goal<h.x?-1:1;
+      if(Math.abs(h.x-goal)>6) h.x+=h.dir*2.1;
+      else {
+        if(P.surf.name==='counter'&&Math.abs(P.x-PLATE.x)<200){ shoo('OFF THE COUNTER'); h.state='out'; }
+        else { h.state='pet'; h.petT=110; SFX.purr(); pets++; say('being touched'); }
+      }
+      if(h.t>600) h.state='out';
+    } else if(h.state==='pet'){
+      h.petT--;
+      if(tick%9===0&&Math.abs(h.x-P.x)<120)
+        hearts.push({x:P.x+rnd(-14,14),y:P.y-46,vy:rnd(-1.4,-.6),life:rnd(30,54)});
+      if(h.petT<=0){ h.state='out'; }
+    } else {
+      h.x+=2.4;
+      if(h.x>W+80){ h.gone=true; mice.forEach(m=>m.hidden=false); say('all clear'); }
+    }
+  });
+  humans=humans.filter(h=>!h.gone);
+
+  hearts.forEach(h=>{ h.y+=h.vy; h.life--; });
+  hearts=hearts.filter(h=>h.life>0);
+  puffs.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.vy+=.04; p.life--; });
+  puffs=puffs.filter(p=>p.life>0);
+  crumbs.forEach(c=>{ c.x+=c.vx; c.y+=c.vy; c.vy+=.3; c.life--; });
+  crumbs=crumbs.filter(c=>c.life>0);
+
+  /* keep the mice coming until the quota is out */
+  if(mice.length+caught<need&&tick%200===0) spawnMouse();
+
+  if(caught>=need) winRound();
+}
+
+function tryCatch(){
+  const reach=P.x+P.face*40;
+  const m=mice.find(mm=>!mm.hidden&&mm.wait<=0&&Math.abs(mm.x-reach)<46&&Math.abs(mm.y-P.y)<40);
+  if(!m){ if(P.surf.name!=='counter') SFX.miss(); return; }
+  P.scratchHit=true;
+  if(P.sneak||P.wiggle>0){
+    mice=mice.filter(x2=>x2!==m); caught++; SFX.catch(); shake=7;
+    for(let i=0;i<16;i++) puffs.push({x:m.x,y:m.y,vx:rnd(-3,3),vy:rnd(-3,-.4),life:rnd(18,34),grey:1});
+    const left=need-caught;
+    say(left? left+(left===1?' MOUSE LEFT':' MICE LEFT') : 'THAT IS ALL OF THEM');
+  } else {
+    /* not stalking: you biff it and it trundles off */
+    m.at=false; m.target=clamp(m.x+rnd(-260,260),80,W-80);
+    SFX.miss(); say('SNEAK FIRST — HOLD Y');
+    for(let i=0;i<8;i++) puffs.push({x:m.x,y:m.y,vx:rnd(-2,2),vy:rnd(-2,-.3),life:rnd(12,24),grey:1});
+  }
+}
+function shoo(text){
+  strikes++; SFX.shoo(); shake=12;
+  P.y=FLOOR; P.vy=0; P.surf=SURFACES[0]; P.onGround=true;
+  P.x=clamp(P.x-90,40,W-40);
+  say(text+'  ('+strikes+'/'+maxStrikes+')');
+  if(strikes>=maxStrikes) loseRound();
+}
+
+function winRound(){
+  state='win'; SFX.win(); best=Math.max(best,night);
+  document.getElementById('w-mice').textContent=caught;
+  document.getElementById('w-food').textContent=food;
+  document.getElementById('w-pets').textContent=pets;
+  document.getElementById('wintext').textContent =
+    food>0 ? 'Every mouse accounted for, and you got at '+food+' thing'+(food>1?'s':'')+' off the counter. Nobody suspects you.'
+           : 'Every mouse accounted for. You did not touch the counter once, which is honestly out of character.';
+  setTimeout(()=>card('c-win'),800);
+}
+function loseRound(){
+  state='lose'; SFX.lose(); best=Math.max(best,night);
+  document.getElementById('l-mice').textContent=caught+' / '+need;
+  document.getElementById('l-night').textContent=night;
+  document.getElementById('l-best').textContent=best;
+  setTimeout(()=>card('c-lose'),700);
+}
+
+/* ══ DRAW ══════════════════════════════════════════════════ */
+function draw(){
+  g.setTransform(1,0,0,1,0,0);
+  const sx=shake?rnd(-shake,shake):0, sy=shake?rnd(-shake,shake):0;
+  g.save(); g.translate(sx,sy);
+  room();
+  drawSofa(); drawTable(); drawCounter();
+  drawMice();
+  drawCat();
+  drawHumans();
+  drawBits();
+  g.restore();
+  hud();
+}
+
+function room(){
+  /* wall */
+  const wg=g.createLinearGradient(0,0,0,FLOOR);
+  wg.addColorStop(0,'#EFE1CA'); wg.addColorStop(1,'#DCC9AB');
+  g.fillStyle=wg; g.fillRect(0,0,W,FLOOR);
+  /* stripes */
+  g.fillStyle='rgba(255,255,255,.22)';
+  for(let i=0;i<W;i+=64) g.fillRect(i,0,26,FLOOR);
+  /* dado rail */
+  g.fillStyle='#C4A883'; g.fillRect(0,FLOOR-96,W,10);
+  g.fillStyle='#D6BE9B'; g.fillRect(0,FLOOR-86,W,86);
+  /* skirting */
+  g.fillStyle='#F2E7D4'; g.fillRect(0,FLOOR-26,W,26);
+  g.fillStyle='#D9C6A8'; g.fillRect(0,FLOOR-30,W,5);
+
+  /* window with night outside */
+  g.fillStyle='#8C6B45'; g.fillRect(300,84,220,190);
+  g.fillStyle='#16203A'; g.fillRect(310,94,200,170);
+  for(let i=0;i<22;i++){ const sx2=316+((i*61)%188), sy2=100+((i*43)%156);
+    g.globalAlpha=.4+Math.abs(Math.sin(tick*.02+i))*.5; g.fillStyle='#FFF'; g.fillRect(sx2,sy2,2,2); }
+  g.globalAlpha=1;
+  g.fillStyle='#E8E2C0'; g.beginPath(); g.arc(470,132,20,0,7); g.fill();
+  g.fillStyle='#16203A'; g.beginPath(); g.arc(462,126,17,0,7); g.fill();
+  g.fillStyle='#8C6B45'; g.fillRect(404,94,10,170); g.fillRect(310,170,200,10);
+
+  /* a picture of a fish, because of course */
+  g.fillStyle='#B8905E'; g.fillRect(672,120,132,104);
+  g.fillStyle='#F4EBD6'; g.fillRect(682,130,112,84);
+  g.fillStyle='#5E9AA8'; g.beginPath(); g.ellipse(732,172,30,16,0,0,7); g.fill();
+  g.beginPath(); g.moveTo(762,172); g.lineTo(784,158); g.lineTo(784,186); g.closePath(); g.fill();
+  g.fillStyle='#16203A'; g.beginPath(); g.arc(718,168,3,0,7); g.fill();
+
+  /* door */
+  g.fillStyle='#8C5A32'; g.fillRect(DOOR.x-58,FLOOR-268,116,268);
+  g.fillStyle='#7A4C28'; g.fillRect(DOOR.x-48,FLOOR-256,96,120);
+  g.fillRect(DOOR.x-48,FLOOR-126,96,110);
+  g.fillStyle='#E8C46A'; g.beginPath(); g.arc(DOOR.x+36,FLOOR-140,7,0,7); g.fill();
+
+  /* floorboards */
+  const fg=g.createLinearGradient(0,FLOOR,0,H);
+  fg.addColorStop(0,'#A6764A'); fg.addColorStop(1,'#7E5634');
+  g.fillStyle=fg; g.fillRect(0,FLOOR,W,H-FLOOR);
+  g.strokeStyle='rgba(60,36,18,.35)'; g.lineWidth=2;
+  for(let i=0;i<8;i++){ g.beginPath(); g.moveTo(0,FLOOR+16+i*16); g.lineTo(W,FLOOR+14+i*16); g.stroke(); }
+  for(let i=0;i<10;i++){ g.beginPath(); g.moveTo(i*140+((i%2)*70),FLOOR); g.lineTo(i*140+((i%2)*70)-30,H); g.stroke(); }
+
+  /* rug */
+  g.fillStyle='#8C4A52'; g.beginPath(); g.ellipse(600,FLOOR+66,300,50,0,0,7); g.fill();
+  g.fillStyle='#A85C64'; g.beginPath(); g.ellipse(600,FLOOR+64,262,40,0,0,7); g.fill();
+  g.fillStyle='#C97A80'; g.beginPath(); g.ellipse(600,FLOOR+62,180,26,0,0,7); g.fill();
+
+  /* mouse holes */
+  HOLES.forEach(h=>{
+    g.fillStyle='#2A1A10';
+    g.beginPath(); g.moveTo(h.x-26,h.y); g.quadraticCurveTo(h.x-24,h.y-42,h.x,h.y-42);
+    g.quadraticCurveTo(h.x+24,h.y-42,h.x+26,h.y); g.closePath(); g.fill();
+    g.strokeStyle='#5A3A22'; g.lineWidth=3; g.stroke();
+  });
+
+  /* cat bowl */
+  g.fillStyle='#4E8C88'; g.beginPath(); g.ellipse(228,FLOOR+34,34,13,0,0,7); g.fill();
+  g.fillStyle='#3E7A78'; g.beginPath(); g.ellipse(228,FLOOR+30,26,9,0,0,7); g.fill();
+  g.fillStyle='#8C6142'; g.beginPath(); g.ellipse(228,FLOOR+29,18,6,0,0,7); g.fill();
+
+  /* pot plant */
+  g.fillStyle='#B8794A'; g.beginPath(); g.moveTo(740,FLOOR); g.lineTo(796,FLOOR); g.lineTo(788,FLOOR-52); g.lineTo(748,FLOOR-52); g.closePath(); g.fill();
+  g.fillStyle='#6E8C6A';
+  for(let i=0;i<7;i++){ const a=-2.5+i*.42+Math.sin(tick*.01+i)*.05;
+    g.beginPath(); g.moveTo(768,FLOOR-52);
+    g.quadraticCurveTo(768+Math.cos(a)*40,FLOOR-52+Math.sin(a)*46-20,768+Math.cos(a)*70,FLOOR-52+Math.sin(a)*66);
+    g.quadraticCurveTo(768+Math.cos(a)*36,FLOOR-52+Math.sin(a)*40+10,768,FLOOR-52); g.fill(); }
+}
+
+function drawSofa(){
+  const s=SURFACES[1];
+  g.fillStyle='rgba(0,0,0,.14)'; g.beginPath(); g.ellipse(s.x+s.w/2,FLOOR+16,150,20,0,0,7); g.fill();
+  g.fillStyle='#4E7A86'; g.fillRect(s.x-14,s.y,s.w+28,FLOOR-s.y);
+  g.fillStyle='#5E8C98'; g.fillRect(s.x-14,s.y,s.w+28,26);           /* back top = the surface */
+  g.fillStyle='#3E6672'; g.fillRect(s.x-14,s.y+96,s.w+28,26);        /* seat */
+  g.fillStyle='#6E9CA8';
+  g.beginPath(); g.roundRect(s.x-30,s.y+18,34,104,10); g.fill();
+  g.beginPath(); g.roundRect(s.x+s.w-4,s.y+18,34,104,10); g.fill();
+  /* cushions */
+  g.fillStyle='#F0C97A';
+  g.beginPath(); g.roundRect(s.x+16,s.y+36,66,58,10); g.fill();
+  g.fillStyle='#D9606A';
+  g.beginPath(); g.roundRect(s.x+120,s.y+40,60,54,10); g.fill();
+  g.fillStyle='#3A2A20'; g.fillRect(s.x+4,FLOOR-14,14,14); g.fillRect(s.x+s.w-18,FLOOR-14,14,14);
+}
+function drawTable(){
+  const s=SURFACES[2];
+  g.fillStyle='rgba(0,0,0,.16)'; g.beginPath(); g.ellipse(s.x+s.w/2,FLOOR+14,124,18,0,0,7); g.fill();
+  g.fillStyle='#7A5232'; g.fillRect(s.x+14,s.y+16,14,FLOOR-s.y-16); g.fillRect(s.x+s.w-28,s.y+16,14,FLOOR-s.y-16);
+  g.fillStyle='#9A6B42'; g.fillRect(s.x-10,s.y,s.w+20,18);
+  g.fillStyle='#B08154'; g.fillRect(s.x-10,s.y,s.w+20,6);
+  /* a mug and a book on it */
+  g.fillStyle='#F2E7D4'; g.beginPath(); g.roundRect(s.x+30,s.y-30,30,30,4); g.fill();
+  g.strokeStyle='#F2E7D4'; g.lineWidth=6; g.beginPath(); g.arc(s.x+66,s.y-16,10,-1.2,1.2); g.stroke();
+  g.fillStyle='#3E7A78'; g.fillRect(s.x+120,s.y-14,64,14);
+  g.fillStyle='#D9606A'; g.fillRect(s.x+120,s.y-20,64,7);
+}
+function drawCounter(){
+  const s=SURFACES[3];
+  g.fillStyle='#E4D3B4'; g.fillRect(s.x,s.y+18,s.w,FLOOR-s.y-18);
+  g.fillStyle='#D2BE9A'; g.fillRect(s.x,s.y+18,s.w,10);
+  /* cupboard doors */
+  g.fillStyle='#CDB894';
+  for(let i=0;i<3;i++) g.fillRect(s.x+12+i*106,s.y+40,92,120);
+  g.fillStyle='#9C8360';
+  for(let i=0;i<3;i++) g.fillRect(s.x+44+i*106,s.y+94,28,7);
+  /* worktop */
+  g.fillStyle='#5E5248'; g.fillRect(s.x-10,s.y,s.w+20,20);
+  g.fillStyle='#726457'; g.fillRect(s.x-10,s.y,s.w+20,7);
+  /* the food */
+  g.fillStyle='#F2E7D4'; g.beginPath(); g.ellipse(PLATE.x,PLATE.y-4,44,12,0,0,7); g.fill();
+  g.fillStyle='#E4D6BE'; g.beginPath(); g.ellipse(PLATE.x,PLATE.y-7,34,8,0,0,7); g.fill();
+  if(P.eatT<=0){
+    g.fillStyle='#D9805A'; g.beginPath(); g.ellipse(PLATE.x-10,PLATE.y-14,15,9,0,0,7); g.fill();
+    g.fillStyle='#E8A06A'; g.beginPath(); g.ellipse(PLATE.x+12,PLATE.y-13,12,8,0,0,7); g.fill();
+    g.fillStyle='#7A9E4A'; g.beginPath(); g.ellipse(PLATE.x+2,PLATE.y-20,8,5,0,0,7); g.fill();
+  }
+  /* a kettle */
+  g.fillStyle='#B8C0C8'; g.beginPath(); g.roundRect(s.x+30,s.y-46,50,46,8); g.fill();
+  g.fillStyle='#98A0A8'; g.fillRect(s.x+44,s.y-56,22,10);
+  /* the prompt when you are up there */
+  if(P.surf.name==='counter'&&Math.abs(P.x-PLATE.x)<70&&P.eatT<=0){
+    g.textAlign='center'; g.font='700 14px "IBM Plex Mono",monospace';
+    g.fillStyle=humans.length?'#D9606A':'#3A2A20';
+    g.fillText(humans.length?'NOT NOW — THEY ARE RIGHT THERE':'PRESS S TO EAT IT',PLATE.x,PLATE.y-52);
+  }
+}
+
+/* ── the cat ───────────────────────────────────────────────── */
+function drawCat(){
+  const bob=P.sneak?0:Math.sin(P.walkT)*2;
+  const crouch=P.sneak?9:0;
+  const wig=P.sneak?Math.sin(P.wiggle)*3:0;
+  const sc=P.scratch>0?Math.sin((20-P.scratch)/20*Math.PI):0;
+  g.save(); g.translate(P.x,P.y+crouch*.4); g.scale(P.face,1);
+  g.fillStyle='rgba(0,0,0,.2)'; g.beginPath(); g.ellipse(0,4,32,8,0,0,7); g.fill();
+
+  /* tail */
+  const tw=Math.sin(P.tail)*(P.sneak?6:14);
+  g.strokeStyle='#E08A2E'; g.lineWidth=9; g.lineCap='round';
+  g.beginPath(); g.moveTo(-26,-22+crouch);
+  g.quadraticCurveTo(-58,-40+crouch+tw, -50-Math.abs(tw)*.3, -66+crouch+tw*.6);
+  g.stroke();
+  g.strokeStyle='#C4701E'; g.lineWidth=3;
+  g.beginPath(); g.moveTo(-40,-32+crouch+tw*.3); g.lineTo(-46,-36+crouch+tw*.4); g.stroke();
+
+  /* back legs */
+  const st=Math.sin(P.walkT)*5;
+  g.fillStyle='#E08A2E';
+  g.fillRect(-24,-20+crouch,11,20-crouch+st*.3);
+  g.fillStyle='#F0973A';
+  g.fillRect(-12,-20+crouch,11,20-crouch-st*.3);
+
+  /* body */
+  g.fillStyle='#F0973A';
+  g.beginPath(); g.ellipse(-4+wig*.3,-32+crouch,30,20-crouch*.3,0,0,7); g.fill();
+  g.fillStyle='#FFC98A';
+  g.beginPath(); g.ellipse(-2,-24+crouch,22,11,0,0,7); g.fill();
+  /* tabby stripes */
+  g.strokeStyle='#C4701E'; g.lineWidth=4; g.lineCap='round';
+  [-18,-8,2].forEach((ox,i)=>{ g.beginPath();
+    g.moveTo(ox,-46+crouch+i*0); g.lineTo(ox-3,-36+crouch); g.stroke(); });
+
+  /* front legs */
+  g.fillStyle='#F0973A';
+  g.fillRect(14,-20+crouch,10,20-crouch-st*.3);
+  g.fillStyle='#FFC98A'; g.fillRect(14,-4,10,4);
+  g.fillStyle='#E08A2E';
+  g.fillRect(24,-20+crouch,10,20-crouch+st*.3);
+  g.fillStyle='#FFC98A'; g.fillRect(24,-4,10,4);
+
+  /* head */
+  g.save(); g.translate(28,-46+crouch+bob);
+  g.fillStyle='#F0973A'; g.beginPath(); g.ellipse(0,0,19,17,0,0,7); g.fill();
+  /* ears */
+  g.fillStyle='#E08A2E';
+  g.beginPath(); g.moveTo(-14,-12); g.lineTo(-19,-30); g.lineTo(-2,-17); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(9,-16); g.lineTo(15,-32); g.lineTo(19,-11); g.closePath(); g.fill();
+  g.fillStyle='#F5A8B4';
+  g.beginPath(); g.moveTo(-12,-14); g.lineTo(-15,-25); g.lineTo(-5,-16); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(10,-17); g.lineTo(14,-27); g.lineTo(16,-13); g.closePath(); g.fill();
+  /* stripes on the head */
+  g.strokeStyle='#C4701E'; g.lineWidth=3;
+  [[-6,-14,-4,-6],[1,-16,1,-7],[8,-14,6,-6]].forEach(([a,b,c,d])=>{
+    g.beginPath(); g.moveTo(a,b); g.lineTo(c,d); g.stroke(); });
+  /* muzzle */
+  g.fillStyle='#FFDFA8'; g.beginPath(); g.ellipse(8,6,11,8,0,0,7); g.fill();
+  /* eyes — narrow when sneaking, closed on a blink */
+  const shut=P.blink<6;
+  if(shut||P.eatT>0){
+    g.strokeStyle='#3A2A20'; g.lineWidth=2.4;
+    g.beginPath(); g.moveTo(-9,-2); g.quadraticCurveTo(-5,2,-1,-2); g.stroke();
+    g.beginPath(); g.moveTo(6,-2); g.quadraticCurveTo(10,2,14,-2); g.stroke();
+  } else {
+    const eh=P.sneak?4:7;
+    g.fillStyle='#F4E9A8'; g.beginPath(); g.ellipse(-5,-2,6,eh,0,0,7); g.fill();
+    g.beginPath(); g.ellipse(10,-2,6,eh,0,0,7); g.fill();
+    g.fillStyle='#3A2A20';
+    g.beginPath(); g.ellipse(-4,-2,P.sneak?1.6:2.6,eh-.5,0,0,7); g.fill();
+    g.beginPath(); g.ellipse(11,-2,P.sneak?1.6:2.6,eh-.5,0,0,7); g.fill();
+  }
+  /* nose + mouth */
+  g.fillStyle='#F5A8B4'; g.beginPath();
+  g.moveTo(5,3); g.lineTo(12,3); g.lineTo(8.5,8); g.closePath(); g.fill();
+  g.strokeStyle='#C4701E'; g.lineWidth=1.8;
+  g.beginPath(); g.moveTo(8.5,8); g.quadraticCurveTo(4,12,1,8); g.stroke();
+  g.beginPath(); g.moveTo(8.5,8); g.quadraticCurveTo(13,12,16,8); g.stroke();
+  /* whiskers */
+  g.strokeStyle='rgba(255,255,255,.9)'; g.lineWidth=1.4;
+  [-3,1,5].forEach(dy=>{ g.beginPath(); g.moveTo(15,3+dy); g.lineTo(42,-1+dy*1.5); g.stroke(); });
+  g.restore();
+
+  /* the scratch */
+  if(P.scratch>0){
+    g.globalAlpha=sc;
+    g.strokeStyle='#FFF4E2'; g.lineWidth=4; g.lineCap='round';
+    for(let i=0;i<3;i++){
+      g.beginPath();
+      g.moveTo(34+i*3,-46+crouch+i*10);
+      g.quadraticCurveTo(56,-40+crouch+i*11,66,-30+crouch+i*12);
+      g.stroke();
+    }
+    g.globalAlpha=1;
+  }
+  g.restore();
+
+  /* stalking marker */
+  if(P.sneak&&state==='play'){
+    g.textAlign='center'; g.font='800 13px "Baloo 2",sans-serif';
+    g.fillStyle='rgba(58,42,32,.55)';
+    g.fillText('· stalking ·',P.x,P.y-92);
+  }
+}
+
+/* ── mice ──────────────────────────────────────────────────── */
+function drawMice(){
+  mice.forEach(m=>{
+    if(m.wait>0||m.hidden) return;
+    const bob=Math.sin(m.wob)*1.4;
+    g.save(); g.translate(m.x,m.y+ (1-m.out)*14); g.globalAlpha=m.out; g.scale(m.dir,1);
+    g.fillStyle='rgba(0,0,0,.18)'; g.beginPath(); g.ellipse(0,3,15,4,0,0,7); g.fill();
+    /* tail */
+    g.strokeStyle='#C9A0A8'; g.lineWidth=2.6; g.lineCap='round';
+    g.beginPath(); g.moveTo(-11,-6); g.quadraticCurveTo(-26,-10+Math.sin(m.wob*1.4)*4,-20,-1); g.stroke();
+    /* body */
+    g.fillStyle='#9C93A0'; g.beginPath(); g.ellipse(0,-7+bob*.3,13,9,0,0,7); g.fill();
+    g.fillStyle='#B8B0BC'; g.beginPath(); g.ellipse(2,-5,8,5,0,0,7); g.fill();
+    /* head */
+    g.fillStyle='#9C93A0'; g.beginPath(); g.ellipse(11,-7+bob*.3,8,7,0,0,7); g.fill();
+    /* ear */
+    g.fillStyle='#8C8492'; g.beginPath(); g.arc(8,-14,5.4,0,7); g.fill();
+    g.fillStyle='#E0A8B4'; g.beginPath(); g.arc(8,-13,3.2,0,7); g.fill();
+    /* face */
+    g.fillStyle='#2A2028'; g.beginPath(); g.arc(15,-8,1.9,0,7); g.fill();
+    g.fillStyle='#E0A8B4'; g.beginPath(); g.arc(19,-5,2,0,7); g.fill();
+    g.strokeStyle='rgba(255,255,255,.8)'; g.lineWidth=1;
+    [-2,1,4].forEach(dy=>{ g.beginPath(); g.moveTo(19,-5+dy*.6); g.lineTo(32,-8+dy); g.stroke(); });
+    /* little feet */
+    g.fillStyle='#E0A8B4';
+    g.fillRect(-6,-2,4,3); g.fillRect(4,-2,4,3);
+    g.restore(); g.globalAlpha=1;
+    /* it noticed nothing */
+    if(m.at&&Math.floor(tick/40)%3===0){
+      g.textAlign='center'; g.font='800 15px "Baloo 2",sans-serif';
+      g.fillStyle='rgba(58,42,32,.45)'; g.fillText('♪',m.x+6,m.y-30);
+    }
+  });
+}
+
+/* ── humans ────────────────────────────────────────────────── */
+function drawHumans(){
+  humans.forEach(h=>{
+    const walk=h.state==='pet'?0:Math.sin(h.t*.2)*5;
+    const bend=h.state==='pet'?Math.min(26,(110-h.petT)*.6):0;
+    g.save(); g.translate(h.x,h.y); g.scale(h.state==='out'?1:-1,1);
+    g.fillStyle='rgba(0,0,0,.16)'; g.beginPath(); g.ellipse(0,4,26,7,0,0,7); g.fill();
+    /* legs */
+    g.fillStyle='#3E4A66'; g.fillRect(-12,-62,12,62+walk*.2); g.fillRect(2,-62,12,62-walk*.2);
+    g.fillStyle='#2A2028'; g.fillRect(-14,-6,16,7); g.fillRect(2,-6,16,7);
+    /* body, leaning down to touch the cat */
+    g.save(); g.translate(0,-62); g.rotate(-bend*Math.PI/180);
+    g.fillStyle='#6E8C6A'; g.beginPath(); g.roundRect(-18,-56,36,58,7); g.fill();
+    g.fillStyle='#5E7A5A'; g.fillRect(-18,-24,36,7);
+    /* the offending arm */
+    g.save(); g.translate(14,-42); g.rotate((h.state==='pet'?1.1:.25)+Math.sin(h.t*.12)*.12);
+    g.fillStyle='#6E8C6A'; g.beginPath(); g.roundRect(-6,0,12,42,6); g.fill();
+    g.fillStyle='#E8C49A'; g.beginPath(); g.arc(0,46,8,0,7); g.fill();
+    g.restore();
+    g.fillStyle='#6E8C6A'; g.beginPath(); g.roundRect(-20,-42,12,40,6); g.fill();
+    /* head */
+    g.fillStyle='#E8C49A'; g.beginPath(); g.ellipse(0,-72,17,19,0,0,7); g.fill();
+    g.fillStyle='#4A3A2E'; g.beginPath(); g.arc(0,-80,17,Math.PI,0); g.fill();
+    g.fillRect(-17,-82,34,6);
+    g.fillStyle='#2A2028'; g.beginPath(); g.arc(-6,-70,2.2,0,7); g.arc(6,-70,2.2,0,7); g.fill();
+    g.strokeStyle='#2A2028'; g.lineWidth=2;
+    g.beginPath(); g.arc(0,-64,5,.2,Math.PI-.2); g.stroke();
+    g.restore();
+    g.restore();
+    if(h.state==='pet'){
+      g.textAlign='center'; g.font='800 15px "Baloo 2",sans-serif';
+      g.fillStyle='rgba(58,42,32,.6)'; g.fillText('"who\'s a good cat"',h.x,h.y-176);
+    }
+  });
+}
+
+function drawBits(){
+  hearts.forEach(h=>{
+    g.globalAlpha=clamp(h.life/40,0,1);
+    g.fillStyle='#D9606A';
+    g.beginPath();
+    g.moveTo(h.x,h.y+5);
+    g.bezierCurveTo(h.x-9,h.y-3,h.x-4,h.y-11,h.x,h.y-5);
+    g.bezierCurveTo(h.x+4,h.y-11,h.x+9,h.y-3,h.x,h.y+5);
+    g.fill();
+  });
+  g.globalAlpha=1;
+  puffs.forEach(p=>{
+    g.globalAlpha=clamp(p.life/24,0,.7);
+    g.fillStyle=p.grey?'#B8B0BC':'#D9C6A8';
+    g.beginPath(); g.arc(p.x,p.y,3+ (24-p.life)*.12,0,7); g.fill();
+  });
+  g.globalAlpha=1;
+  crumbs.forEach(c=>{
+    g.globalAlpha=clamp(c.life/30,0,1);
+    g.fillStyle=['#D9805A','#E8A06A','#7A9E4A'][c.life%3];
+    g.fillRect(c.x-2,c.y-2,4,4);
+  });
+  g.globalAlpha=1;
+}
+
+/* ── HUD ───────────────────────────────────────────────────── */
+function hud(){
+  if(state!=='play'&&state!=='intro') return;
+  /* mice caught */
+  g.textAlign='left';
+  g.fillStyle='rgba(42,32,24,.72)'; g.beginPath(); g.roundRect(24,20,232,66,12); g.fill();
+  g.font='500 10.5px "IBM Plex Mono",monospace'; g.fillStyle='#C9B79E';
+  g.fillText('MICE',40,42);
+  g.font='800 34px "Baloo 2",sans-serif'; g.fillStyle='#FFC98A';
+  g.fillText(caught+' / '+need,40,76);
+  for(let i=0;i<need;i++){
+    g.fillStyle=i<caught?'#F0973A':'rgba(201,183,158,.28)';
+    g.beginPath(); g.arc(150+i*17,64,5.5,0,7); g.fill();
+  }
+
+  /* the human clock */
+  const k=clamp(humanTimer/humanEvery,0,1);
+  g.textAlign='center';
+  g.fillStyle='rgba(42,32,24,.72)'; g.beginPath(); g.roundRect(W/2-116,20,232,58,12); g.fill();
+  g.font='500 10.5px "IBM Plex Mono",monospace'; g.fillStyle='#C9B79E';
+  g.fillText(humans.length?'THERE IS A HUMAN IN HERE':'NEXT HUMAN',W/2,40);
+  g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(W/2-96,50,192,12);
+  g.fillStyle=humans.length?'#D9606A':(k<.2?'#E8A06A':'#6E8C6A');
+  g.fillRect(W/2-96,50,192*(humans.length?1:1-k),12);
+  g.font='600 11px "IBM Plex Mono",monospace'; g.fillStyle='#C9B79E';
+  if(!humans.length) g.fillText(Math.ceil(humanTimer/60)+'s',W/2,74);
+
+  /* snacks + strikes */
+  g.textAlign='right';
+  g.fillStyle='rgba(42,32,24,.72)'; g.beginPath(); g.roundRect(W-256,20,232,66,12); g.fill();
+  g.font='500 10.5px "IBM Plex Mono",monospace'; g.fillStyle='#C9B79E';
+  g.fillText('SNACKS',W-40,42);
+  g.font='800 34px "Baloo 2",sans-serif'; g.fillStyle='#FFC98A';
+  g.fillText(String(food),W-40,76);
+  for(let i=0;i<maxStrikes;i++){
+    const hx=W-166-i*26, hy=64;
+    g.fillStyle=i<maxStrikes-strikes?'#D9606A':'rgba(201,183,158,.25)';
+    g.beginPath();
+    g.moveTo(hx,hy+5);
+    g.bezierCurveTo(hx-9,hy-3,hx-4,hy-11,hx,hy-5);
+    g.bezierCurveTo(hx+4,hy-11,hx+9,hy-3,hx,hy+5);
+    g.fill();
+  }
+
+  /* message */
+  if(msgT>0&&msg){
+    g.globalAlpha=clamp(msgT/40,0,1);
+    g.textAlign='center'; g.font='800 24px "Baloo 2",sans-serif';
+    const w=g.measureText(msg).width+42;
+    g.fillStyle='rgba(42,32,24,.78)'; g.beginPath(); g.roundRect(W/2-w/2,H-84,w,42,10); g.fill();
+    g.fillStyle='#FFC98A'; g.fillText(msg,W/2,H-54);
+    g.globalAlpha=1;
+  }
+  /* controls strip */
+  g.textAlign='center'; g.font='500 10.5px "IBM Plex Mono",monospace';
+  g.fillStyle='rgba(42,32,24,.5)';
+  g.fillText('L left · R right · W walk · B backwards · J jump · Y sneak · S scratch',W/2,H-16);
+}
+
+/* ── loop ──────────────────────────────────────────────────── */
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+
+document.getElementById('begin').onclick=()=>{ night=1; try{ac().resume();}catch(e){} startRound(); };
+document.getElementById('next').onclick=()=>{ night++; startRound(); };
+document.getElementById('retry').onclick=()=>{ startRound(); };
+addEventListener('keydown',e=>{
+  if(state==='play'||state==='intro') return;
+  if(e.key==='Enter'||e.key===' '){
+    const c=document.querySelector('.card.on'), b=c&&c.querySelector('.btn'); if(b) b.click();
+  }
+});
+
+/* a quiet room behind the title screen */
+need=plan(1).mice;
+for(let i=0;i<3;i++) spawnMouse(i*60);
+state='title'; card('c-title');
+loop();
+</script>
+</body>
+</html>

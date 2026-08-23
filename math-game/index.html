@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Number Forge</title>
+<meta name="description" content="An arcade math trainer: pick a discipline, climb ten levels, forge a relic every time you clear one.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=DM+Mono:wght@400;500&display=swap">
+<style>
+/* ── Number Forge ── committed dark "forge" theme: molten citrus on cold indigo ── */
+:root{
+  --ink:#0B0918;        /* cold near-black ground */
+  --ink-2:#151129;      /* raised panel */
+  --ink-3:#1E1839;      /* hover / inset */
+  --edge:#2C2450;       /* hairline */
+  --hot:#FFB020;        /* molten accent — the one bold thing */
+  --hot-2:#FF6B3D;      /* ember, used sparingly with --hot */
+  --cool:#7CE0C4;       /* correct / go */
+  --cold:#8C7FE8;       /* teach / info */
+  --text:#EFEAFF;       /* warm-biased off-white */
+  --dim:#9C93C4;        /* indigo-biased grey, chosen not defaulted */
+  --dimmer:#655C8C;
+  --shadow:0 18px 40px -18px rgba(0,0,0,.85);
+  --r:14px;
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --mono:"DM Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--ink);color:var(--text);
+  font-family:var(--display);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+body::before{ /* ambient forge glow */
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(60vw 50vh at 50% -10%, rgba(255,176,32,.13), transparent 70%),
+    radial-gradient(50vw 45vh at 8% 105%, rgba(140,127,232,.12), transparent 70%);
+}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--hot);outline-offset:3px;border-radius:6px}
+.app{position:relative;z-index:1;height:100%;display:grid;place-items:center;padding:16px}
+.screen{display:none;width:100%;max-width:860px;max-height:100%;overflow-y:auto;overflow-x:hidden}
+.screen.on{display:block;animation:rise .38s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* ── title ── */
+.brand{text-align:center;margin-bottom:26px}
+.brand h1{
+  font-size:clamp(44px,9vw,86px);font-weight:800;letter-spacing:-.04em;line-height:.9;margin:0;
+  background:linear-gradient(178deg,var(--text) 34%,var(--hot) 78%,var(--hot-2));
+  -webkit-background-clip:text;background-clip:text;color:transparent;text-wrap:balance;
+}
+.brand p{margin:12px auto 0;max-width:44ch;color:var(--dim);font-size:15px;line-height:1.55}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--hot);margin:0 0 10px}
+
+/* ── topic grid ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:12px}
+.topic{
+  position:relative;text-align:left;padding:18px 16px 16px;border-radius:var(--r);
+  background:var(--ink-2);border:1px solid var(--edge);transition:transform .16s,border-color .16s,background .16s;
+}
+.topic:hover{transform:translateY(-3px);border-color:var(--hot);background:var(--ink-3)}
+.topic .sym{font-family:var(--mono);font-size:26px;color:var(--hot);line-height:1}
+.topic h3{margin:12px 0 4px;font-size:18px;font-weight:600;letter-spacing:-.02em}
+.topic small{color:var(--dim);font-size:12.5px;line-height:1.4;display:block}
+.topic .prog{margin-top:14px;height:4px;border-radius:99px;background:var(--edge);overflow:hidden}
+.topic .prog i{display:block;height:100%;background:linear-gradient(90deg,var(--hot-2),var(--hot));border-radius:99px}
+.topic .lvl{position:absolute;top:14px;right:14px;font-family:var(--mono);font-size:11px;color:var(--dimmer)}
+
+/* ── HUD ── */
+.hud{display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.hud .back{font-family:var(--mono);font-size:12px;color:var(--dim);padding:6px 10px;border:1px solid var(--edge);border-radius:99px}
+.hud .back:hover{color:var(--text);border-color:var(--hot)}
+.hud .title{font-weight:600;letter-spacing:-.02em}
+.hud .title span{color:var(--dim);font-weight:400}
+.hud .spacer{flex:1}
+.stat{font-family:var(--mono);font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.stat b{color:var(--text);font-weight:500}
+
+/* goal bar */
+.goal{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.bar{flex:1;height:12px;border-radius:99px;background:var(--ink-2);border:1px solid var(--edge);overflow:hidden;position:relative}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--hot-2),var(--hot));transition:width .45s cubic-bezier(.2,.8,.2,1);box-shadow:0 0 18px rgba(255,176,32,.5)}
+.goal .label{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);white-space:nowrap}
+
+/* ── problem card ── */
+.card{background:var(--ink-2);border:1px solid var(--edge);border-radius:22px;padding:34px 26px 26px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.card.good{animation:pop .4s cubic-bezier(.2,.9,.2,1)}
+.card.bad{animation:shake .38s}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.022)}100%{transform:scale(1)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-9px)}40%{transform:translateX(8px)}60%{transform:translateX(-5px)}80%{transform:translateX(3px)}}
+.prompt{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--dimmer);text-align:center;margin-bottom:14px}
+.question{font-size:clamp(34px,8vw,64px);font-weight:800;letter-spacing:-.03em;text-align:center;line-height:1.1;margin:0;text-wrap:balance;font-variant-numeric:tabular-nums}
+.answer{
+  margin:22px auto 0;width:min(320px,100%);height:70px;border-radius:16px;
+  background:var(--ink);border:2px solid var(--edge);display:grid;place-items:center;
+  font-family:var(--mono);font-size:32px;font-variant-numeric:tabular-nums;letter-spacing:.04em;
+  transition:border-color .18s,box-shadow .18s;
+}
+.answer.filled{border-color:var(--hot);box-shadow:0 0 0 4px rgba(255,176,32,.12)}
+.answer.ok{border-color:var(--cool);box-shadow:0 0 0 4px rgba(124,224,196,.14);color:var(--cool)}
+.answer.no{border-color:var(--hot-2);color:var(--hot-2)}
+.answer .caret{display:inline-block;width:2px;height:32px;background:var(--hot);margin-left:2px;animation:blink 1s steps(1) infinite;vertical-align:-5px}
+@keyframes blink{50%{opacity:0}}
+.combo{position:absolute;top:16px;right:18px;font-family:var(--mono);font-size:12px;color:var(--hot);opacity:0;transform:translateY(-6px);transition:.25s}
+.combo.on{opacity:1;transform:none}
+.timerbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--edge)}
+.timerbar i{display:block;height:100%;background:var(--cool);width:100%;transition:width .2s linear}
+
+/* keypad */
+.pad{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:22px}
+.key{height:56px;border-radius:12px;background:var(--ink-3);border:1px solid var(--edge);font-family:var(--mono);font-size:20px;transition:transform .1s,background .14s,border-color .14s}
+.key:hover{background:#261F45;border-color:var(--dimmer)}
+.key:active{transform:translateY(2px)}
+.key.wide{grid-column:span 2}
+.key.go{background:linear-gradient(160deg,var(--hot),var(--hot-2));color:#1A1000;font-weight:600;border:0;font-family:var(--display);font-size:17px;letter-spacing:.02em}
+.key.go:disabled{opacity:.35;cursor:not-allowed;transform:none}
+
+/* ── teach panel ── */
+.teach{margin-top:16px;background:linear-gradient(180deg,rgba(140,127,232,.14),rgba(140,127,232,.05));border:1px solid rgba(140,127,232,.42);border-radius:18px;padding:20px 22px;animation:rise .3s both}
+.teach h4{margin:0 0 4px;font-size:13px;font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cold)}
+.teach .said{color:var(--dim);font-size:14px;margin:0 0 14px}
+.teach .said b{color:var(--hot-2);font-family:var(--mono)}
+.teach ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px;counter-reset:s}
+.teach li{counter-increment:s;display:flex;gap:12px;align-items:flex-start;font-size:15px;line-height:1.45}
+.teach li::before{content:counter(s);flex:none;width:22px;height:22px;border-radius:99px;background:rgba(140,127,232,.22);color:var(--cold);font-family:var(--mono);font-size:11px;display:grid;place-items:center;margin-top:1px}
+.teach code{font-family:var(--mono);color:var(--text);background:rgba(255,255,255,.06);padding:1px 5px;border-radius:5px}
+.teach .again{margin-top:16px;width:100%;height:50px;border-radius:12px;background:var(--cold);color:#120E28;font-weight:600}
+
+/* ── level clear ── */
+.clear{text-align:center;padding:8px 0 4px}
+.relic{width:150px;height:150px;margin:0 auto 18px;border-radius:28px;display:grid;place-items:center;font-size:66px;
+  background:radial-gradient(circle at 34% 28%,rgba(255,176,32,.28),rgba(255,107,61,.1) 60%,transparent);
+  border:1px solid rgba(255,176,32,.45);box-shadow:0 0 60px -12px rgba(255,176,32,.55);
+  animation:forge .9s cubic-bezier(.2,.9,.2,1) both}
+@keyframes forge{0%{transform:scale(.4) rotate(-18deg);opacity:0}60%{transform:scale(1.09) rotate(4deg);opacity:1}100%{transform:scale(1) rotate(0)}}
+.clear h2{font-size:clamp(30px,6vw,46px);font-weight:800;letter-spacing:-.03em;margin:0}
+.clear .relicname{font-family:var(--mono);color:var(--hot);font-size:14px;letter-spacing:.14em;text-transform:uppercase;margin:10px 0 0}
+.clear p.note{color:var(--dim);max-width:40ch;margin:14px auto 0;font-size:15px;line-height:1.5}
+.scoreline{display:flex;gap:10px;justify-content:center;margin:22px 0 24px;flex-wrap:wrap}
+.chip{background:var(--ink-2);border:1px solid var(--edge);border-radius:12px;padding:10px 16px;font-family:var(--mono);font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.chip b{display:block;font-size:22px;color:var(--text);font-family:var(--display);font-weight:700;margin-top:3px}
+.btnrow{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.btn{height:52px;padding:0 26px;border-radius:12px;background:linear-gradient(160deg,var(--hot),var(--hot-2));color:#1A1000;font-weight:600;font-size:16px}
+.btn.ghost{background:none;border:1px solid var(--edge);color:var(--dim)}
+.btn.ghost:hover{color:var(--text);border-color:var(--dimmer)}
+
+/* vault */
+.vault{margin-top:34px;border-top:1px solid var(--edge);padding-top:20px}
+.vault h5{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--dimmer);margin:0 0 12px;text-align:center}
+.relics{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.rel{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:21px;background:var(--ink-2);border:1px solid var(--edge)}
+.rel.off{opacity:.22;filter:grayscale(1)}
+
+canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:5}
+.toast{position:fixed;left:50%;top:22px;transform:translate(-50%,-24px);z-index:6;background:var(--ink-3);border:1px solid var(--hot);color:var(--hot);
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;padding:9px 18px;border-radius:99px;opacity:0;transition:.3s}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.muted{position:fixed;right:14px;bottom:12px;z-index:6;font-family:var(--mono);font-size:11px;color:var(--dimmer);letter-spacing:.1em}
+.muted:hover{color:var(--hot)}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+@media(max-width:520px){.card{padding:26px 16px 20px;border-radius:18px}.key{height:52px}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══ SCREEN 1: pick a discipline ══ -->
+  <section class="screen on" id="s-menu">
+    <div class="brand">
+      <p class="kicker">Arcade Math Trainer</p>
+      <h1>Number Forge</h1>
+      <p>Pick a discipline. Ten levels each, hotter every time. Clear one and you forge a relic — miss one and the forge shows you exactly how it's done.</p>
+    </div>
+    <div class="grid" id="topics"></div>
+    <div class="vault">
+      <h5>The Vault — <span id="vaultcount">0</span> relics forged</h5>
+      <div class="relics" id="vault"></div>
+    </div>
+  </section>
+
+  <!-- ══ SCREEN 2: play ══ -->
+  <section class="screen" id="s-play">
+    <div class="hud">
+      <button class="back" id="quit">← Forge</button>
+      <div class="title" id="ptitle">Addition <span>· Level 1</span></div>
+      <div class="spacer"></div>
+      <div class="stat">SCORE <b id="score">0</b></div>
+      <div class="stat">BEST STREAK <b id="beststreak">0</b></div>
+    </div>
+    <div class="goal">
+      <div class="label" id="goaltext">0 / 10</div>
+      <div class="bar"><i id="goalfill"></i></div>
+      <div class="label" id="rewardhint">🔥 Ember Stone</div>
+    </div>
+
+    <div class="card" id="card">
+      <div class="combo" id="combo">×2 COMBO</div>
+      <div class="prompt" id="prompt">Solve</div>
+      <h2 class="question" id="question">7 + 5</h2>
+      <div class="answer" id="answer"><span class="caret"></span></div>
+      <div class="pad" id="pad"></div>
+      <div class="timerbar"><i id="timerfill"></i></div>
+    </div>
+
+    <div id="teachslot"></div>
+  </section>
+
+  <!-- ══ SCREEN 3: level cleared ══ -->
+  <section class="screen" id="s-clear">
+    <div class="clear">
+      <div class="relic" id="relicicon">🔥</div>
+      <h2 id="cleartitle">Level 1 forged.</h2>
+      <p class="relicname" id="relicname">Ember Stone acquired</p>
+      <div class="scoreline">
+        <div class="chip">SCORE<b id="c-score">0</b></div>
+        <div class="chip">BEST STREAK<b id="c-streak">0</b></div>
+        <div class="chip">ACCURACY<b id="c-acc">100%</b></div>
+      </div>
+      <p class="note" id="clearnote"></p>
+      <div class="btnrow" style="margin-top:22px">
+        <button class="btn" id="next">Next level →</button>
+        <button class="btn ghost" id="menu">Back to the forge</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<canvas id="fx"></canvas>
+<div class="toast" id="toast"></div>
+<button class="muted" id="mute">♪ SOUND ON</button>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════
+   NUMBER FORGE — single-file math arcade
+   ════════════════════════════════════════════════════════════ */
+
+const $ = id => document.getElementById(id);
+const rnd = (a,b) => Math.floor(Math.random()*(b-a+1))+a;
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const gcd = (a,b) => b ? gcd(b,a%b) : Math.abs(a);
+
+/* ── SOUND ─────────────────────────────────────────────────── */
+let AC=null, muted = localStorage.getItem('nf_mute')==='1';
+const ac = () => AC || (AC = new (window.AudioContext||window.webkitAudioContext)());
+function tone(freq, dur=.14, type='triangle', vol=.16, delay=0){
+  if(muted) return;
+  try{
+    const c=ac(), t=c.currentTime+delay;
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(vol,t+.012);
+    g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t+dur+.02);
+  }catch(e){}
+}
+const SCALE=[523.25,587.33,659.25,783.99,880,1046.5,1174.7,1318.5,1568,1760]; // C major pentatonic-ish, climbs with streak
+const sfx = {
+  key : () => tone(320,.045,'square',.05),
+  good: s => { const f=SCALE[Math.min(s,SCALE.length-1)]; tone(f,.13,'triangle',.17); tone(f*1.5,.1,'sine',.09,.045); },
+  bad : () => { tone(174,.16,'sawtooth',.09); tone(130,.24,'sine',.1,.07); },
+  levelup: () => [0,.09,.18,.3].forEach((d,i)=>tone([523,659,784,1046][i],.42,'triangle',.16,d)),
+  relic: () => [0,.12,.24,.36,.5].forEach((d,i)=>tone([392,523,659,880,1319][i],.6,'sine',.13,d)),
+  tick: () => tone(880,.03,'sine',.03)
+};
+
+/* ── CONTENT: topics, generators, teaching ─────────────────── */
+/* Every generator returns { q, a, teach:[steps], hint }
+   `a` is the canonical answer string. Levels run 1..10, harder each step. */
+
+function fracStr(n,d){ const g=gcd(n,d)||1; n/=g; d/=g; if(d<0){n=-n;d=-d;} return d===1?String(n):n+"/"+d; }
+
+const TOPICS = [
+  {
+    id:'add', name:'Addition', sym:'+', blurb:'Stacking numbers, from tens to four digits and decimals.',
+    gen(L){
+      if(L<=2){ const a=rnd(2,9+L*6), b=rnd(2,9+L*6); const toTen=10-(a%10);
+        return {q:`${a} + ${b}`, a:String(a+b),
+        teach:[`Start at <code>${a}</code> and count on <code>${b}</code>.`,
+               b>toTen ? `Jump to a round ten first: <code>${a} + ${toTen} = ${a+toTen}</code>, with <code>${b-toTen}</code> still to add.`
+                       : `Count on in ones: ${Array.from({length:b},(_,i)=>a+i+1).join(', ')}.`,
+               `<code>${a} + ${b} = ${a+b}</code>`]};}
+      if(L<=4){ const a=rnd(15,99), b=rnd(15,99); const at=Math.floor(a/10)*10, bt=Math.floor(b/10)*10;
+        return {q:`${a} + ${b}`, a:String(a+b),
+        teach:[`Split into tens and ones: <code>${at}+${a%10}</code> and <code>${bt}+${b%10}</code>.`,
+               `Tens: <code>${at} + ${bt} = ${at+bt}</code>. Ones: <code>${a%10} + ${b%10} = ${a%10+b%10}</code>.`,
+               `Put them back together: <code>${at+bt} + ${a%10+b%10} = ${a+b}</code>`]};}
+      if(L<=6){ const a=rnd(100,999), b=rnd(100,999); return {q:`${a} + ${b}`, a:String(a+b),
+        teach:[`Round <code>${b}</code> up to <code>${Math.ceil(b/100)*100}</code> — friendlier to add.`,
+               `<code>${a} + ${Math.ceil(b/100)*100} = ${a+Math.ceil(b/100)*100}</code>`,
+               `You added <code>${Math.ceil(b/100)*100-b}</code> too many, so subtract it back: <code>${a+b}</code>`]};}
+      if(L<=8){ const a=rnd(3,49),b=rnd(3,49),c=rnd(3,49); return {q:`${a} + ${b} + ${c}`, a:String(a+b+c),
+        teach:[`Add the first two: <code>${a} + ${b} = ${a+b}</code>.`,
+               `Then bring in the last: <code>${a+b} + ${c}</code>.`,
+               `<code>= ${a+b+c}</code>`]};}
+      const a=rnd(10,99)/10, b=rnd(10,99)/10, s=Math.round((a+b)*10)/10;
+      return {q:`${a} + ${b}`, a:String(s),
+        teach:[`Line up the decimal points — tenths under tenths.`,
+               `Whole parts: <code>${Math.floor(a)} + ${Math.floor(b)} = ${Math.floor(a)+Math.floor(b)}</code>.`,
+               `Tenths: <code>${Math.round(a%1*10)} + ${Math.round(b%1*10)} = ${Math.round(a%1*10)+Math.round(b%1*10)}</code> tenths, which is <code>${Math.round((a%1+b%1)*10)/10}</code>.`,
+               `Total: <code>${s}</code>`]};
+    }
+  },
+  {
+    id:'sub', name:'Subtraction', sym:'−', blurb:'Borrowing, gaps, and crossing below zero.',
+    gen(L){
+      if(L<=2){ const b=rnd(1,6+L*4), a=b+rnd(1,9+L*5); return {q:`${a} − ${b}`, a:String(a-b),
+        teach:[`Think of it as a gap: how far from <code>${b}</code> up to <code>${a}</code>?`,
+               `Count up from <code>${b}</code> to <code>${a}</code>.`,`The gap is <code>${a-b}</code>.`]};}
+      if(L<=5){ const b=rnd(11,89), a=b+rnd(11,99); return {q:`${a} − ${b}`, a:String(a-b),
+        teach:[`Round <code>${b}</code> to <code>${Math.round(b/10)*10}</code> first.`,
+               `<code>${a} − ${Math.round(b/10)*10} = ${a-Math.round(b/10)*10}</code>`,
+               `Now correct by <code>${Math.abs(Math.round(b/10)*10-b)}</code>: the answer is <code>${a-b}</code>.`]};}
+      if(L<=7){ const b=rnd(120,899), a=b+rnd(50,700); return {q:`${a} − ${b}`, a:String(a-b),
+        teach:[`Add the same amount to both numbers to kill the borrowing.`,
+               `<code>${a}+${1000-b} = ${a+1000-b}</code> and <code>${b}+${1000-b} = 1000</code>.`,
+               `So the gap is <code>${a+1000-b} − 1000 = ${a-b}</code>.`]};}
+      const a=rnd(2,60), b=a+rnd(3,70); return {q:`${a} − ${b}`, a:String(a-b),
+        teach:[`You're taking away more than you have, so the answer is negative.`,
+               `Flip it: <code>${b} − ${a} = ${b-a}</code>.`,
+               `Now put the minus back: <code>${a-b}</code>.`]};
+    }
+  },
+  {
+    id:'mul', name:'Multiplication', sym:'×', blurb:'Tables at speed, then two-digit splitting.',
+    gen(L){
+      if(L<=3){ const a=rnd(2,4+L*2), b=rnd(2,4+L*2); return {q:`${a} × ${b}`, a:String(a*b),
+        teach:[`<code>${a} × ${b}</code> means <code>${b}</code> groups of <code>${a}</code>.`,
+               `Skip-count: ${Array.from({length:Math.min(b,5)},(_,i)=>a*(i+1)).join(', ')}${b>5?'…':''}`,
+               `<code>${a} × ${b} = ${a*b}</code>`]};}
+      if(L<=5){ const a=rnd(6,12), b=rnd(6,12); return {q:`${a} × ${b}`, a:String(a*b),
+        teach:[`Anchor on a ten: <code>10 × ${b} = ${10*b}</code>.`,
+               `You need <code>${a}</code> groups, that's <code>${10-a}</code> fewer: <code>${10*b} − ${(10-a)*b} </code>.`,
+               `<code>= ${a*b}</code>`]};}
+      if(L<=7){ const a=rnd(12,29), b=rnd(3,9); return {q:`${a} × ${b}`, a:String(a*b),
+        teach:[`Split <code>${a}</code> into <code>${Math.floor(a/10)*10} + ${a%10}</code>.`,
+               `<code>${Math.floor(a/10)*10} × ${b} = ${Math.floor(a/10)*10*b}</code> and <code>${a%10} × ${b} = ${(a%10)*b}</code>.`,
+               `Add them: <code>${Math.floor(a/10)*10*b} + ${(a%10)*b} = ${a*b}</code>`]};}
+      const a=rnd(12,49), b=rnd(11,29); return {q:`${a} × ${b}`, a:String(a*b),
+        teach:[`Break the second number: <code>${b} = ${Math.floor(b/10)*10} + ${b%10}</code>.`,
+               `<code>${a} × ${Math.floor(b/10)*10} = ${a*Math.floor(b/10)*10}</code>`,
+               `<code>${a} × ${b%10} = ${a*(b%10)}</code>`,
+               `Sum the parts: <code>${a*Math.floor(b/10)*10} + ${a*(b%10)} = ${a*b}</code>`]};
+    }
+  },
+  {
+    id:'div', name:'Division', sym:'÷', blurb:'Sharing evenly, then remainders and big divisors.',
+    gen(L){
+      if(L<=3){ const b=rnd(2,3+L), q=rnd(2,4+L*2), a=b*q; return {q:`${a} ÷ ${b}`, a:String(q),
+        teach:[`Ask: how many <code>${b}</code>s fit inside <code>${a}</code>?`,
+               `<code>${b} × ${q} = ${a}</code> — that's the one.`,
+               `So <code>${a} ÷ ${b} = ${q}</code>.`]};}
+      if(L<=6){ const b=rnd(3,12), q=rnd(4,20), a=b*q; const chunk = q>=10?10:2;
+        return {q:`${a} ÷ ${b}`, a:String(q),
+        teach:[`Chunk it. <code>${b} × ${chunk} = ${b*chunk}</code>, which fits inside <code>${a}</code>.`,
+               `Left to go: <code>${a} − ${b*chunk} = ${a-b*chunk}</code>, and <code>${a-b*chunk} ÷ ${b} = ${q-chunk}</code>.`,
+               `Add the chunks: <code>${chunk} + ${q-chunk} = ${q}</code>.`]};}
+      if(L<=8){ const b=rnd(3,9), q=rnd(5,30), r=rnd(1,b-1), a=b*q+r;
+        return {q:`${a} ÷ ${b}`, a:`${q} r${r}`, hint:'Answer like  7r2',
+        teach:[`<code>${b} × ${q} = ${b*q}</code>, the closest you can get without passing <code>${a}</code>.`,
+               `Left over: <code>${a} − ${b*q} = ${r}</code>.`,
+               `Write it as <code>${q} r${r}</code> — ${q} whole groups, ${r} left over.`]};}
+      const b=rnd(11,25), q=rnd(4,30), a=b*q; return {q:`${a} ÷ ${b}`, a:String(q),
+        teach:[`Estimate first: <code>${b}</code> is about <code>${Math.round(b/10)*10}</code>, and <code>${a} ÷ ${Math.round(b/10)*10} ≈ ${Math.round(a/(Math.round(b/10)*10))}</code>.`,
+               `Test it: <code>${b} × ${q} = ${a}</code>. Exact.`,
+               `So <code>${a} ÷ ${b} = ${q}</code>.`]};
+    }
+  },
+  {
+    id:'alg', name:'Algebra', sym:'x', blurb:'Isolate x — one step, then two, then brackets.',
+    gen(L){
+      if(L<=2){ const x=rnd(1,9+L*3), a=rnd(1,15), b=x+a; return {q:`x + ${a} = ${b}`, a:String(x),
+        teach:[`Whatever touches <code>x</code>, undo it — on <em>both</em> sides.`,
+               `<code>+${a}</code> is undone by <code>−${a}</code>: <code>x + ${a} − ${a} = ${b} − ${a}</code>`,
+               `<code>x = ${x}</code>`]};}
+      if(L<=4){ const x=rnd(2,12), a=rnd(2,9), b=a*x; return {q:`${a}x = ${b}`, a:String(x),
+        teach:[`<code>${a}x</code> means <code>${a}</code> times <code>x</code>. Undo × with ÷.`,
+               `Divide both sides by <code>${a}</code>: <code>${b} ÷ ${a}</code>`,
+               `<code>x = ${x}</code>`]};}
+      if(L<=6){ const x=rnd(2,12), a=rnd(2,9), b=rnd(1,20), c=a*x+b; return {q:`${a}x + ${b} = ${c}`, a:String(x),
+        teach:[`Two steps: strip the loose number first, then the multiplier.`,
+               `<code>−${b}</code> both sides: <code>${a}x = ${c-b}</code>`,
+               `<code>÷${a}</code> both sides: <code>x = ${(c-b)/a}</code>`]};}
+      if(L<=8){ const x=rnd(2,10), a=rnd(2,6), b=rnd(1,9), c=a*(x+b); return {q:`${a}(x + ${b}) = ${c}`, a:String(x),
+        teach:[`The bracket is multiplied by <code>${a}</code> — divide it off first.`,
+               `<code>x + ${b} = ${c} ÷ ${a} = ${c/a}</code>`,
+               `Then <code>−${b}</code>: <code>x = ${c/a - b}</code>`]};}
+      const x=rnd(2,10), a=rnd(3,8), b=rnd(1,2), c=rnd(1,12), d=(a-b)*x+c;
+      return {q:`${a}x + ${c} = ${b}x + ${d}`, a:String(x),
+        teach:[`Get every <code>x</code> on one side. Subtract <code>${b}x</code> from both.`,
+               `<code>${a-b}x + ${c} = ${d}</code>`,
+               `Subtract <code>${c}</code>: <code>${a-b}x = ${d-c}</code>`,
+               `Divide by <code>${a-b}</code>: <code>x = ${x}</code>`]};
+    }
+  },
+  {
+    id:'frac', name:'Fractions', sym:'½', blurb:'Same denominators, then different ones, then multiplying.',
+    hintDefault:'Answer as a fraction, e.g. 3/4',
+    gen(L){
+      if(L<=2){ const d=rnd(3,9), n1=rnd(1,d-1), n2=rnd(1,d-n1<1?1:d-n1);
+        return {q:`${n1}/${d} + ${n2}/${d}`, a:fracStr(n1+n2,d), hint:'Answer as a fraction, e.g. 3/4',
+        teach:[`Same denominator, so just add the tops.`,
+               `<code>${n1} + ${n2} = ${n1+n2}</code>, over <code>${d}</code>.`,
+               `<code>${(n1+n2)}/${d}</code>${fracStr(n1+n2,d)!==`${n1+n2}/${d}`?` simplifies to <code>${fracStr(n1+n2,d)}</code> (divide both by <code>${gcd(n1+n2,d)}</code>).`:''}`]};}
+      if(L<=4){ const d=rnd(4,20), k=rnd(2,6), n=rnd(1,d-1);
+        const N=n*k, D=d*k;
+        return {q:`Simplify ${N}/${D}`, a:fracStr(N,D), hint:'Answer as a fraction, e.g. 3/4',
+        teach:[`Find what divides into both <code>${N}</code> and <code>${D}</code>.`,
+               `The biggest one is <code>${gcd(N,D)}</code>.`,
+               `<code>${N}÷${gcd(N,D)} = ${N/gcd(N,D)}</code>, <code>${D}÷${gcd(N,D)} = ${D/gcd(N,D)}</code> → <code>${fracStr(N,D)}</code>`]};}
+      if(L<=7){ const d1=rnd(2,6), d2=rnd(2,7), n1=rnd(1,d1-1), n2=rnd(1,d2-1);
+        const N=n1*d2+n2*d1, D=d1*d2;
+        return {q:`${n1}/${d1} + ${n2}/${d2}`, a:fracStr(N,D), hint:'Answer as a fraction, e.g. 3/4',
+        teach:[`Different denominators — give them a common one: <code>${d1} × ${d2} = ${D}</code>.`,
+               `<code>${n1}/${d1} = ${n1*d2}/${D}</code> and <code>${n2}/${d2} = ${n2*d1}/${D}</code>.`,
+               `Add the tops: <code>${n1*d2} + ${n2*d1} = ${N}</code> → <code>${N}/${D}</code>`,
+               `${fracStr(N,D)!==`${N}/${D}`?`Simplify by <code>${gcd(N,D)}</code>: <code>${fracStr(N,D)}</code>`:`Already in lowest terms: <code>${fracStr(N,D)}</code>`}`]};}
+      const d1=rnd(2,8), d2=rnd(2,8), n1=rnd(1,d1-1), n2=rnd(1,d2-1);
+      return {q:`${n1}/${d1} × ${n2}/${d2}`, a:fracStr(n1*n2,d1*d2), hint:'Answer as a fraction, e.g. 3/4',
+        teach:[`Multiplying is the easy one: straight across.`,
+               `Tops: <code>${n1} × ${n2} = ${n1*n2}</code>. Bottoms: <code>${d1} × ${d2} = ${d1*d2}</code>.`,
+               `<code>${n1*n2}/${d1*d2}</code>${fracStr(n1*n2,d1*d2)!==`${n1*n2}/${d1*d2}`?` → simplify by <code>${gcd(n1*n2,d1*d2)}</code> → <code>${fracStr(n1*n2,d1*d2)}</code>`:''}`]};
+    }
+  },
+  {
+    id:'pow', name:'Powers & Roots', sym:'x²', blurb:'Squares, cubes, roots, and the order of operations.',
+    gen(L){
+      if(L<=2){ const a=rnd(2,6+L*2); return {q:`${a}²`, a:String(a*a),
+        teach:[`<code>${a}²</code> means <code>${a} × ${a}</code> — a square with side <code>${a}</code>.`,
+               `<code>${a} × ${a} = ${a*a}</code>`,
+               `Squares to memorise: 4, 9, 16, 25, 36, 49, 64, 81, 100…`]};}
+      if(L<=4){ const a=rnd(2,15); return {q:`√${a*a}`, a:String(a),
+        teach:[`A square root asks: what number times itself gives <code>${a*a}</code>?`,
+               `Try <code>${a}</code>: <code>${a} × ${a} = ${a*a}</code>. ✓`,
+               `<code>√${a*a} = ${a}</code>`]};}
+      if(L<=6){ const a=rnd(2,8); return {q:`${a}³`, a:String(a**3),
+        teach:[`Cubed means three of them multiplied: <code>${a} × ${a} × ${a}</code>.`,
+               `First pair: <code>${a} × ${a} = ${a*a}</code>.`,
+               `Then <code>${a*a} × ${a} = ${a**3}</code>`]};}
+      if(L<=8){ const a=rnd(2,9), b=rnd(2,9), c=rnd(2,9); return {q:`${a} + ${b} × ${c}`, a:String(a+b*c),
+        teach:[`Order of operations: multiplication happens before addition.`,
+               `<code>${b} × ${c} = ${b*c}</code> first.`,
+               `Then <code>${a} + ${b*c} = ${a+b*c}</code>. (Not <code>${(a+b)*c}</code> — that's the trap.)`]};}
+      const a=rnd(2,7), b=rnd(2,9), c=rnd(1,9);
+      return {q:`${a}² + ${b} × ${c}`, a:String(a*a+b*c),
+        teach:[`Powers first, then multiply, then add.`,
+               `<code>${a}² = ${a*a}</code>`,
+               `<code>${b} × ${c} = ${b*c}</code>`,
+               `<code>${a*a} + ${b*c} = ${a*a+b*c}</code>`]};
+    }
+  },
+  {
+    id:'mix', name:'The Gauntlet', sym:'∞', blurb:'Everything, shuffled. Unlocks nothing gently.',
+    gen(L){ const t=pick(TOPICS.filter(t=>t.id!=='mix')); const p=t.gen(Math.min(10,L+1)); p.prompt=t.name; return p; }
+  }
+];
+
+/* relics, one per level */
+const RELICS = [
+  ['🔥','Ember Stone'],['⚙️','Brass Cog'],['🔷','Cobalt Prism'],['🗝️','Skeleton Key'],['🪙','Minted Coin'],
+  ['🔮','Seer Orb'],['⚡','Storm Shard'],['🛡️','Aegis Plate'],['👑','Iron Crown'],['🌟','Forge Star']
+];
+
+/* ── STATE ─────────────────────────────────────────────────── */
+const save = JSON.parse(localStorage.getItem('nf_save')||'{}');
+const progress = save.progress || {};   // topicId -> highest cleared level
+const owned    = save.owned || {};      // "topicId:level" -> true
+function persist(){ localStorage.setItem('nf_save', JSON.stringify({progress,owned})); }
+
+let T=null, level=1, goal=10, done=0, score=0, streak=0, best=0, asked=0, right=0;
+let cur=null, buf='', locked=false, timer=null, tLeft=0, tMax=0, retry=null;
+
+/* ── MENU ──────────────────────────────────────────────────── */
+function renderMenu(){
+  $('topics').innerHTML = TOPICS.map(t=>{
+    const p = progress[t.id]||0;
+    return `<button class="topic" data-t="${t.id}">
+      <div class="lvl">${p}/10</div>
+      <div class="sym">${t.sym}</div>
+      <h3>${t.name}</h3>
+      <small>${t.blurb}</small>
+      <div class="prog"><i style="width:${p*10}%"></i></div>
+    </button>`;
+  }).join('');
+  document.querySelectorAll('.topic').forEach(b=>b.onclick=()=>start(b.dataset.t));
+  const all = TOPICS.flatMap(t=>RELICS.map((r,i)=>({r,k:`${t.id}:${i+1}`})));
+  const got = all.filter(x=>owned[x.k]).length;
+  $('vaultcount').textContent = got;
+  $('vault').innerHTML = RELICS.map((r,i)=>{
+    const n = TOPICS.filter(t=>owned[`${t.id}:${i+1}`]).length;
+    return `<div class="rel ${n?'':'off'}" title="${r[1]} ×${n}">${r[0]}</div>`;
+  }).join('');
+}
+
+function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on')); $(id).classList.add('on'); }
+
+/* ── GAME ──────────────────────────────────────────────────── */
+function start(tid, lvl){
+  T = TOPICS.find(t=>t.id===tid);
+  level = lvl || Math.min(10,(progress[tid]||0)+1);
+  goal = 8 + Math.min(4, Math.floor(level/3)*2);
+  done=0; score=0; streak=0; best=0; asked=0; right=0; retry=null;
+  $('ptitle').innerHTML = `${T.name} <span>· Level ${level}</span>`;
+  $('rewardhint').textContent = `${RELICS[level-1][0]} ${RELICS[level-1][1]}`;
+  show('s-play'); updateGoal(); nextQ();
+}
+
+function updateGoal(){
+  $('goaltext').textContent = `${done} / ${goal}`;
+  $('goalfill').style.width = (done/goal*100)+'%';
+  $('score').textContent = score;
+  $('beststreak').textContent = best;
+}
+
+function nextQ(){
+  $('teachslot').innerHTML='';
+  cur = retry || T.gen(level);
+  retry = null;
+  locked=false; buf='';
+  $('prompt').textContent = cur.hint || (cur.prompt ? cur.prompt : 'Solve');
+  $('question').textContent = cur.q;
+  $('answer').className='answer';
+  drawAnswer();
+  startTimer();
+}
+
+function startTimer(){
+  clearInterval(timer);
+  tMax = Math.max(6, 22 - level*1.2); tLeft = tMax;
+  $('timerfill').style.width='100%';
+  timer = setInterval(()=>{
+    tLeft -= .1;
+    $('timerfill').style.width = Math.max(0,tLeft/tMax*100)+'%';
+    $('timerfill').style.background = tLeft/tMax<.3 ? 'var(--hot-2)' : 'var(--cool)';
+    if(tLeft<=0){ clearInterval(timer); }
+  },100);
+}
+
+function drawAnswer(){
+  const el=$('answer');
+  el.innerHTML = (buf? buf.replace(/-/g,'−') : '') + '<span class="caret"></span>';
+  el.classList.toggle('filled', buf.length>0);
+  $('go').disabled = buf.length===0;
+}
+
+function press(k){
+  if(locked) return;
+  sfx.key();
+  if(k==='del') buf = buf.slice(0,-1);
+  else if(k==='go') submit();
+  else if(buf.length<9) buf += k;
+  drawAnswer();
+}
+
+function norm(s){ return String(s).replace(/\s+/g,'').replace(/−/g,'-').toLowerCase(); }
+function correct(given, ans){
+  const g=norm(given), a=norm(ans);
+  if(g===a) return true;
+  // numeric equivalence (handles 0.5 vs .5, 4 vs 4.0, and equivalent fractions)
+  const val = s => { const m=s.match(/^(-?\d+)\/(-?\d+)$/); if(m) return +m[1]/+m[2];
+                     return /^-?\d*\.?\d+$/.test(s) ? parseFloat(s) : NaN; };
+  const gv=val(g), av=val(a);
+  if(!isNaN(gv)&&!isNaN(av)&&Math.abs(gv-av)<1e-9){
+    // for fraction topics demand lowest terms
+    if(T.id==='frac' && /\//.test(a)){ return g===a; }
+    return true;
+  }
+  return false;
+}
+
+function submit(){
+  if(locked || !buf) return;
+  locked=true; clearInterval(timer);
+  asked++;
+  const ok = correct(buf, cur.a);
+  const card=$('card');
+  if(ok){
+    right++; done++; streak++; best=Math.max(best,streak);
+    const speed = Math.max(0, Math.round(tLeft/tMax*50));
+    const mult = 1 + Math.min(4, Math.floor(streak/3));
+    score += (100 + speed) * mult;
+    $('answer').classList.add('ok');
+    card.classList.add('good'); setTimeout(()=>card.classList.remove('good'),400);
+    sfx.good(streak-1);
+    burst(streak);
+    if(streak>=3){ $('combo').textContent=`×${mult} COMBO`; $('combo').classList.add('on'); }
+    if(streak===5) toast('🔥 On fire — ×2 points');
+    if(streak===10) toast('⚡ Unbroken chain ×'+mult);
+    updateGoal();
+    setTimeout(()=> done>=goal ? clearLevel() : nextQ(), 620);
+  }else{
+    streak=0; $('combo').classList.remove('on');
+    $('answer').classList.add('no');
+    card.classList.add('bad'); setTimeout(()=>card.classList.remove('bad'),400);
+    sfx.bad();
+    teach(buf);
+  }
+}
+
+function teach(given){
+  const steps = cur.teach.map(s=>`<li>${s}</li>`).join('');
+  $('teachslot').innerHTML = `<div class="teach">
+    <h4>Here's the way through</h4>
+    <p class="said">You answered <b>${given.replace(/-/g,'−')}</b> — the answer is <b>${cur.a.replace(/-/g,'−')}</b>. Why:</p>
+    <ol>${steps}</ol>
+    <button class="again" id="again">Got it — try one like it</button>
+  </div>`;
+  $('teachslot').scrollIntoView({behavior:'smooth',block:'nearest'});
+  $('again').onclick = ()=>{ retry = T.gen(level); nextQ(); };
+  $('again').focus();
+}
+
+function clearLevel(){
+  const [icon,name] = RELICS[level-1];
+  owned[`${T.id}:${level}`] = true;
+  progress[T.id] = Math.max(progress[T.id]||0, level);
+  persist();
+  $('relicicon').textContent = icon;
+  $('relicname').textContent = `${name} acquired`;
+  $('cleartitle').textContent = level===10 ? `${T.name} mastered.` : `Level ${level} forged.`;
+  $('c-score').textContent = score;
+  $('c-streak').textContent = best;
+  $('c-acc').textContent = Math.round(right/asked*100)+'%';
+  $('clearnote').textContent = level===10
+    ? `Every relic in ${T.name} is yours. The Gauntlet shuffles all seven disciplines together — that's the real test.`
+    : `Level ${level+1} runs faster and hits harder. ${RELICS[level][1]} is waiting on the other side.`;
+  $('next').textContent = level===10 ? 'Enter the Gauntlet →' : 'Next level →';
+  show('s-clear');
+  sfx.levelup(); setTimeout(sfx.relic,420);
+  rain();
+}
+
+/* ── FX: particles ─────────────────────────────────────────── */
+const cv=$('fx'), ctx=cv.getContext('2d');
+let parts=[], raf=null;
+function fit(){ cv.width=innerWidth*devicePixelRatio; cv.height=innerHeight*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+fit(); addEventListener('resize',fit);
+const COLORS=['#FFB020','#FF6B3D','#7CE0C4','#8C7FE8','#EFEAFF'];
+function spawn(x,y,n,spread,up){
+  for(let i=0;i<n;i++) parts.push({x,y,
+    vx:(Math.random()-.5)*spread, vy:-Math.random()*up-2,
+    g:.28+Math.random()*.2, r:2+Math.random()*4, life:1,
+    c:pick(COLORS), rot:Math.random()*6, vr:(Math.random()-.5)*.3});
+  if(!raf) raf=requestAnimationFrame(step);
+}
+function step(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  parts = parts.filter(p=>p.life>0);
+  parts.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy; p.vy+=p.g; p.life-=.011; p.rot+=p.vr;
+    ctx.save(); ctx.globalAlpha=Math.max(0,p.life); ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+    ctx.fillStyle=p.c; ctx.fillRect(-p.r,-p.r*.6,p.r*2,p.r*1.2); ctx.restore();
+  });
+  raf = parts.length ? requestAnimationFrame(step) : null;
+  if(!raf) ctx.clearRect(0,0,cv.width,cv.height);
+}
+function burst(streak){
+  const r=$('answer').getBoundingClientRect();
+  spawn(r.left+r.width/2, r.top+r.height/2, 14+Math.min(40,streak*4), 9, 7);
+}
+function rain(){
+  let n=0; const id=setInterval(()=>{
+    spawn(Math.random()*innerWidth, -20, 6, 4, -2);
+    if(++n>26) clearInterval(id);
+  },70);
+}
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'),1600);
+}
+
+/* ── KEYPAD + INPUT ────────────────────────────────────────── */
+const KEYS=[['7','7'],['8','8'],['9','9'],['-','−'],['4','4'],['5','5'],['6','6'],['/','/'],
+            ['1','1'],['2','2'],['3','3'],['r','r'],['0','0','wide'],['.','.'],['del','⌫']];
+$('pad').innerHTML = KEYS.map(([k,l,w])=>`<button class="key ${w||''}" data-k="${k}">${l}</button>`).join('')
+  + `<button class="key go" id="go" data-k="go" style="grid-column:span 4">Check ⏎</button>`;
+$('pad').onclick = e => { const b=e.target.closest('.key'); if(b) press(b.dataset.k); };
+
+addEventListener('keydown', e=>{
+  if(!$('s-play').classList.contains('on')) {
+    if(e.key==='Enter' && $('s-clear').classList.contains('on')) $('next').click();
+    return;
+  }
+  if($('teachslot').firstChild){ if(e.key==='Enter'){ e.preventDefault(); $('again').click(); } return; }
+  if(/^[0-9]$/.test(e.key)) press(e.key);
+  else if(e.key==='Backspace'){ e.preventDefault(); press('del'); }
+  else if(e.key==='Enter'){ e.preventDefault(); press('go'); }
+  else if(e.key==='-'||e.key==='/'||e.key==='.') press(e.key);
+  else if(e.key.toLowerCase()==='r'&&!e.ctrlKey&&!e.metaKey) press('r'); // remainders: 7r2
+});
+
+/* ── WIRING ────────────────────────────────────────────────── */
+$('quit').onclick = ()=>{ clearInterval(timer); renderMenu(); show('s-menu'); };
+$('menu').onclick = ()=>{ renderMenu(); show('s-menu'); };
+$('next').onclick = ()=>{
+  if(level===10){ start('mix'); }
+  else start(T.id, level+1);
+};
+$('mute').onclick = ()=>{ muted=!muted; localStorage.setItem('nf_mute',muted?'1':'0');
+  $('mute').textContent = muted?'♪ SOUND OFF':'♪ SOUND ON'; if(!muted) sfx.good(2); };
+$('mute').textContent = muted?'♪ SOUND OFF':'♪ SOUND ON';
+
+renderMenu();
+</script>
+</body>
+</html>
